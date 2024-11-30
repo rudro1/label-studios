@@ -1,0 +1,151 @@
+*{
+
+    margin: 0;
+}
+body{
+    background-image:url("../image/cover.jpg");
+   background-repeat: repeat;
+   background-size: cover;
+}
+
+#p1{
+border: 2px solid blue;
+font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+font-size: 20px;
+margin: 5px;
+}
+#p2{
+    text-align: center;
+    border: 2px solid purple;
+    font-weight: 800;
+    font-family: 'Franklin Gothic Medium', 'Arial Narrow', Arial, sans-serif;
+font-size: 15px;
+margin: 5px;
+}
+#p3{
+    text-align: justify;
+    border: 2px dotted whitesmoke;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    margin: 5px;
+}
+
+.section1{
+
+    width: 100%;
+}
+#div1,#div2,#div3{
+
+width: 25%;
+background-color: rgb(223, 186, 186);
+
+margin: 10px;
+padding: 10px;
+border: 5px solid black;
+border-radius: 5px solid white;
+box-shadow: 5px 5px 5px 5px #ab2626;
+
+}
+
+
+
+#div2{
+    background-color: rgb(43, 36, 36);
+    box-shadow: 5px 5px rgb(183, 183, 225);
+}
+#div3{
+    background-color:cadetblue;
+    box-shadow: 5px 5px green;
+}
+#d1,#d2,#d3{
+
+
+margin: 10px;
+
+
+text-align: justify;
+font-size: 20px;
+font-family: Arial, Helvetica, sans-serif;
+
+}
+
+#d1{
+    color: goldenrod
+}
+#d2{
+    color: aliceblue;
+}
+#d3{
+    color: yellow;
+}
+.dh1,.dh2,.dh3{
+    background-color: white;
+    text-align: center;
+    text-transform: uppercase;
+    color: aqua;
+}
+#form1{
+    padding: 20px;
+    margin-left: 25%;
+    max-height: 200px;
+    width: 50%;
+    background-color: rgb(105, 156, 201);
+    box-shadow: 5px 5px 5px 5px #2f2d2d;
+    border-radius: 10px solid green;
+    margin-top: 5px;
+   text-align: center;
+   background-image: url("../image/try.jpeg");
+
+}
+#btn1{
+    margin: 5px;
+    background-color: green;
+    color: white;
+    padding: 20px;
+    font-size: 20px;
+    text-transform: capitalize;
+    border-radius: 5px;
+   
+}
+input[type="email"]{
+    color: red;
+    padding: 10px;
+    background: rgba(80, 76, 68, 0.683);
+    margin: 5px;
+    border-radius: 5px;
+    width: 50%;
+    text-transform: capitalize;
+  
+}
+input[type="password"]{
+    color: white;
+    padding: 10px;
+    background: rgba(120, 5, 5, 0.586);
+    border-radius: 5px;
+    width: 50%;
+    text-transform: capitalize;
+    
+ 
+}
+
+::placeholder{
+    color: white;
+}
+
+#emni{
+    visibility: hidden;
+    margin-bottom:0px;
+    margin-left: 50%;
+margin-top: 1px;
+width: 50%;
+height: 240px;
+background-image: url("../image/try.jpeg");
+background-size: 50%;
+background-repeat: repeat-x;
+}
+#dh1
+{
+    color: red;
+    background-color: rgb(26, 26, 17);
+}
