@@ -66,5 +66,6 @@ jobs:
           Submission:
           - Submit only one review
           - Do not comment outside of a review
+          - Review right side of the PR diff viewer only
           - Use only: gh pr review --comment
           - Do not use: gh pr review --approve or --request-changes"
