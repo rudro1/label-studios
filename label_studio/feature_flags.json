@@ -2823,6 +2823,33 @@
       "version": 2,
       "deleted": false
     },
+    "fflag_feat_front_bros_766_per_item_in_outliner": {
+      "key": "fflag_feat_front_bros_766_per_item_in_outliner",
+      "on": true,
+      "prerequisites": [],
+      "targets": [],
+      "contextTargets": [],
+      "rules": [],
+      "fallthrough": {
+        "variation": 0
+      },
+      "offVariation": 1,
+      "variations": [
+        true,
+        false
+      ],
+      "clientSideAvailability": {
+        "usingMobileKey": false,
+        "usingEnvironmentId": false
+      },
+      "clientSide": false,
+      "salt": "107add91ee804fc797360510ff44ff6c",
+      "trackEvents": false,
+      "trackEventsFallthrough": false,
+      "debugEventsUntilDate": null,
+      "version": 3,
+      "deleted": false
+    },
     "fflag_feat_front_bros_779_reactcode_iframe_pool": {
       "key": "fflag_feat_front_bros_779_reactcode_iframe_pool",
       "on": false,
