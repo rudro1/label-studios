@@ -177,6 +177,7 @@ COPY --chown=1001:0 --from=frontend-version-generator $LS_DIR/web/dist/libs/data
 USER 1001
 
 EXPOSE 8080
-
+ENV PORT=7860
+EXPOSE 7860
 ENTRYPOINT ["./deploy/docker-entrypoint.sh"]
 CMD ["label-studio"]
