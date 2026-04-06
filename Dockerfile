@@ -179,5 +179,7 @@ USER 1001
 EXPOSE 8080
 ENV PORT=7860
 EXPOSE 7860
+# ENTRYPOINT ["./deploy/docker-entrypoint.sh"]
+# CMD ["label-studio"]
 ENTRYPOINT ["./deploy/docker-entrypoint.sh"]
-CMD ["label-studio"]
+CMD ["label-studio", "--port", "7860"]
