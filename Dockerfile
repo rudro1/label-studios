@@ -54,10 +54,13 @@ RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache,sharing=locked \
 
 ################################ Stage: frontend-version-generator
 FROM frontend-builder AS frontend-version-generator
+# RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache,sharing=locked \
+#     --mount=type=cache,target=/root/web/.nx,id=nx-cache,sharing=locked \
+#     --mount=type=bind,source=.git,target=../.git \
+#     yarn version:libs
 RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache,sharing=locked \
     --mount=type=cache,target=/root/web/.nx,id=nx-cache,sharing=locked \
-    --mount=type=bind,source=.git,target=../.git \
-    yarn version:libs
+    yarn version:libs || echo "Skip version generation"
 
 ################################ Stage: venv-builder (prepare the virtualenv)
 FROM python:${PYTHON_VERSION}-alpine AS venv-builder
@@ -121,9 +124,10 @@ ARG VERSION_OVERRIDE
 ARG BRANCH_OVERRIDE
 
 # Create version_.py and ls-version_.py
-RUN --mount=type=bind,source=.git,target=./.git \
-    VERSION_OVERRIDE=${VERSION_OVERRIDE} BRANCH_OVERRIDE=${BRANCH_OVERRIDE} poetry run python label_studio/core/version.py
+# RUN --mount=type=bind,source=.git,target=./.git \
+#     VERSION_OVERRIDE=${VERSION_OVERRIDE} BRANCH_OVERRIDE=${BRANCH_OVERRIDE} poetry run python label_studio/core/version.py
 
+RUN VERSION_OVERRIDE=${VERSION_OVERRIDE:-1.0.0} BRANCH_OVERRIDE=${BRANCH_OVERRIDE:-main} poetry run python label_studio/core/version.py || echo "Skip version generation"
 ################################### Stage: prod
 FROM python:${PYTHON_VERSION}-alpine AS production
 
