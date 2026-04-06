@@ -24,3 +24,6 @@ label_studio/**/*.pyc
 !LICENSE
 !pyproject.toml
 !poetry.lock
+.git
+.github
+node_modules
