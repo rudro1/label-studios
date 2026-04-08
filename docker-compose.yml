@@ -80,7 +80,7 @@ services:
     restart: always
 
   label_studio:
-    build: .
+    image: heartexlabs/label-studio:latest
     ports:
       - "8080:8080"
     environment:
