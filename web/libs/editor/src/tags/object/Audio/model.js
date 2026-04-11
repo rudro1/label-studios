@@ -370,10 +370,80 @@ export const AudioModel = types.compose(
 
               if (selectedRegions.length) {
                 self.requestWSUpdate();
+                // Fixensy: label change এ color update
+                setTimeout(() => {
+                  try {
+                    const selRegs = self.regs?.filter((r) => r.selected);
+                    for (const reg of selRegs || []) {
+                      self.updateRegionColorByChoices(reg);
+                    }
+                  } catch(_) {}
+                }, 100);
               }
             },
             false,
           );
+        },
+
+        // Fixensy: perRegion choice change হলে segment color update করো
+        updateRegionColorByChoices(region) {
+          if (!region || !region._ws_region) return;
+
+          // Color map
+          const colorMap = {
+            // Quality
+            "Valid": "#10B981",
+            "Invalid": "#EF4444",
+            // Speaker
+            "Speaker A": "#3B82F6",
+            "Speaker B": "#8B5CF6",
+            "Speaker C": "#10B981",
+            // Invalid Reason
+            "Noise": "#EF4444",
+            "Overlap": "#F97316",
+            "Silence": "#6B7280",
+            "Inaudible": "#92400E",
+            "Other": "#F59E0B",
+          };
+
+          try {
+            // Region এর সব results দেখো
+            const results = region.results || [];
+            let finalColor = "#4A90D9"; // default blue
+
+            // Priority: invalid_reason > speaker > quality
+            let qualityColor = null;
+            let speakerColor = null;
+            let reasonColor = null;
+
+            for (const result of results) {
+              const value = result.mainValue;
+              if (!value) continue;
+
+              const choices = Array.isArray(value) ? value : [value];
+              for (const choice of choices) {
+                if (choice === "Valid" || choice === "Invalid") {
+                  qualityColor = colorMap[choice];
+                }
+                if (["Speaker A", "Speaker B", "Speaker C"].includes(choice)) {
+                  speakerColor = colorMap[choice];
+                }
+                if (["Noise", "Overlap", "Silence", "Inaudible", "Other"].includes(choice)) {
+                  reasonColor = colorMap[choice];
+                }
+              }
+            }
+
+            // Priority order: reason > speaker > quality > default
+            if (reasonColor) finalColor = reasonColor;
+            else if (speakerColor) finalColor = speakerColor;
+            else if (qualityColor) finalColor = qualityColor;
+
+            region._ws_region.update({ color: finalColor });
+            self.requestWSUpdate();
+          } catch (e) {
+            console.warn("Fixensy color update error:", e);
+          }
         },
 
         needsUpdate() {
@@ -477,18 +547,22 @@ export const AudioModel = types.compose(
           }
 
           const states = self.getAvailableStates();
+          let activeStates = self.activeStates();
 
-          if (states.length === 0) {
-            // wsRegion.on("update-end", ev=> self.selectRange(ev, wsRegion));
-            if (wsRegion.isRegion) {
-              wsRegion.convertToSegment().handleSelected();
-            }
-
-            return;
+          if (activeStates.length === 0 && states.length > 0) {
+            const firstState = states[0];
+            const firstLabel = firstState?.children?.[0];
+            if (firstLabel && !firstLabel.selected) firstLabel.toggleSelected();
+            activeStates = self.activeStates();
           }
 
-          const activeStates = self.activeStates();
           const [control, ...rest] = activeStates;
+
+          if (!control) {
+            if (wsRegion.isRegion) wsRegion.convertToSegment().handleSelected();
+            else wsRegion.handleSelected();
+            return;
+          }
           const labels = { [control.valueType]: control.selectedValues() };
           const r = ff.isActive(ff.FF_MULTIPLE_LABELS_REGIONS)
             ? self.annotation.createResult(wsRegion, labels, control, self, false, rest)
@@ -497,6 +571,10 @@ export const AudioModel = types.compose(
 
           r.setWSRegion(updatedRegion);
           r.updateColor();
+          // Fixensy: initial color
+          setTimeout(() => {
+            try { self.updateRegionColorByChoices(r); } catch(_) {}
+          }, 100);
           return r;
         },
 
@@ -506,6 +584,10 @@ export const AudioModel = types.compose(
           if (!r) return;
 
           r.onUpdateEnd();
+          // Fixensy: color update
+          setTimeout(() => {
+            try { self.updateRegionColorByChoices(r); } catch(_) {}
+          }, 50);
           return r;
         },
 

@@ -1,6 +1,6 @@
 import { ff } from "@humansignal/core";
 import { observer } from "mobx-react";
-import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { type FC, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersistentJSONState } from "@humansignal/core/lib/hooks/usePersistentState";
 import { TimelineContextProvider } from "../../../components/Timeline/Context";
 import { ErrorMessage } from "../../../components/ErrorMessage/ErrorMessage";
@@ -38,6 +38,16 @@ const AudioView: FC<AudioProps> = observer(
   ({ item, children, settings = {}, changeSetting = () => {} }: AudioUltraProps) => {
     const rootRef = useRef<HTMLElement | null>();
     const isDarkMode = getCurrentTheme() === "Dark";
+    const [hasRegions, setHasRegions] = useState(false);
+
+    // body তে sync করো যাতে Template CSS কাজ করে
+    useEffect(() => {
+      if (hasRegions) {
+        document.body.setAttribute("data-has-audio-regions", "true");
+      } else {
+        document.body.removeAttribute("data-has-audio-regions");
+      }
+    }, [hasRegions]);
 
     const { waveform, ...controls } = useWaveform(rootRef, {
       src: item._value,
@@ -116,6 +126,7 @@ const AudioView: FC<AudioProps> = observer(
 
       const createRegion = (region: Region | Segment) => {
         item.addRegion(region);
+        setHasRegions(true);
       };
 
       const selectRegion = (region: Region | Segment, event: MouseEvent) => {
@@ -123,7 +134,23 @@ const AudioView: FC<AudioProps> = observer(
 
         const growSelection = event.metaKey || event.ctrlKey;
 
-        if (!growSelection || (!region.selected && !region.isRegion)) item.annotation.regionStore.unselectAll();
+        // FIX: unselectAll এর আগে active label save করো
+        const activeState = item.activeState;
+        const selectedValues = activeState?.selectedValues?.() ?? [];
+
+        if (!growSelection || (!region.selected && !region.isRegion)) {
+          item.annotation.regionStore.unselectAll();
+          // FIX: label reselect করো যাতে পরের drag কাজ করে
+          if (activeState && selectedValues.length > 0) {
+            try {
+              activeState.tiedChildren?.forEach((child: any) => {
+                if (selectedValues.includes(child.value)) {
+                  child.setSelected(true);
+                }
+              });
+            } catch (_) {}
+          }
+        }
 
         // to select or unselect region
         const itemRegion = item.regs.find((obj: any) => obj.id === region.id);
@@ -158,22 +185,34 @@ const AudioView: FC<AudioProps> = observer(
         item.updateRegion(region);
       };
 
+      const checkRegionCount = () => {
+        try {
+          const count = item.regs ? item.regs.length : 0;
+          setHasRegions(count > 0);
+        } catch (_) {}
+      };
+
       waveform.current?.on("beforeRegionsDraw", updateBeforeRegionDraw);
       waveform.current?.on("afterRegionsDraw", updateAfterRegionDraw);
       waveform.current?.on("regionSelected", selectRegion);
       waveform.current?.on("regionCreated", createRegion);
       waveform.current?.on("regionUpdatedEnd", updateRegion);
 
+      waveform.current?.on("regionRemoved", checkRegionCount);
+
       hotkeys.addNamed("region:delete", () => {
         waveform.current?.regions.clearSegments(false);
+        setTimeout(checkRegionCount, 100);
       });
 
       hotkeys.addNamed("segment:delete", () => {
         waveform.current?.regions.clearSegments(false);
+        setTimeout(checkRegionCount, 100);
       });
 
       hotkeys.addNamed("region:delete-all", () => {
         waveform.current?.regions.clearSegments();
+        setTimeout(checkRegionCount, 100);
       });
 
       return () => {
@@ -182,7 +221,7 @@ const AudioView: FC<AudioProps> = observer(
     }, []);
 
     return (
-      <div className={cn("audio-tag").toClassName()}>
+      <div className={cn("audio-tag").toClassName()} data-has-regions={hasRegions ? "true" : "false"}>
         {children}
         <div
           ref={(el) => {

@@ -2,28 +2,27 @@
 **
 
 # Except:
-#!deploy/docker-entrypoint.d/**
-#!deploy/docker-entrypoint.sh
-#!deploy/heroku_run.sh
-#!deploy/uwsgi.ini
-#!deploy/default.conf
-#!label_studio/**
-# Re-ignore pyc files and frontend
-#label_studio/frontend
-#label_studio/**/*.pyc
+!deploy/docker-entrypoint.d/**
+!deploy/docker-entrypoint.sh
+!deploy/heroku_run.sh
+!deploy/uwsgi.ini
+!deploy/default.conf
+!deploy/**
+!label_studio/**
 
 # FRONTEND
-#!web
-#!.git
-# Re-ignore node_modules and nx cache
-**/node_modules
-**/.nx
+!web/**
 
 !README.md
 !licenses/**
 !LICENSE
 !pyproject.toml
 !poetry.lock
+
+# Re-ignore these
 .git
 .github
-node_modules
+**/node_modules
+**/.nx
+**/__pycache__
+**/*.pyc
