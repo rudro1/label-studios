@@ -63,7 +63,7 @@ RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache,sharing=locked \
     yarn version:libs || echo "Skip version generation"
 
 ################################ Stage: venv-builder (prepare the virtualenv)
-FROM python:${PYTHON_VERSION}-alpine AS venv-builder
+FROM python:${PYTHON_VERSION}-slim AS venv-builder
 ARG POETRY_VERSION
 ARG PYTHON_VERSION
 
@@ -71,20 +71,22 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=off \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
-    PIP_DEFAULT_TIMEOUT=100 \
+    PIP_DEFAULT_TIMEOUT=300 \
     PIP_CACHE_DIR="/.cache" \
     POETRY_CACHE_DIR="/.poetry-cache" \
     POETRY_HOME="/opt/poetry" \
     POETRY_VIRTUALENVS_IN_PROJECT=true \
     POETRY_VIRTUALENVS_PREFER_ACTIVE_PYTHON=true \
+    POETRY_INSTALLER_PARALLEL=true \
+    POETRY_HTTP_TIMEOUT=300 \
     PATH="/opt/poetry/bin:$PATH"
 
-RUN apk add --no-cache \
-    build-base \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     git \
-    linux-headers \
     python3-dev \
-    pcre2-dev
+    libpcre2-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 ADD https://install.python-poetry.org /tmp/install-poetry.py
 RUN python /tmp/install-poetry.py
@@ -103,7 +105,7 @@ COPY pyproject.toml poetry.lock README.md ./
 ARG INCLUDE_DEV=false
 
 # Install dependencies
-RUN --mount=type=cache,target=/.poetry-cache,id=poetry-cache-alpine,sharing=locked \
+RUN --mount=type=cache,target=/.poetry-cache,id=poetry-cache-alpine,sharing=shared \
     poetry check --lock && \
     if [ "$INCLUDE_DEV" = "true" ]; then \
         poetry install --no-root --extras uwsgi --with test; \
@@ -113,7 +115,7 @@ RUN --mount=type=cache,target=/.poetry-cache,id=poetry-cache-alpine,sharing=lock
 
 # Install LS
 COPY label_studio label_studio
-RUN --mount=type=cache,target=/.poetry-cache,id=poetry-cache-alpine,sharing=locked \
+RUN --mount=type=cache,target=/.poetry-cache,id=poetry-cache-alpine,sharing=shared \
     # `--extras uwsgi` is mandatory here due to poetry bug: https://github.com/python-poetry/poetry/issues/7302
     poetry install --only-root --extras uwsgi && \
     python3 label_studio/manage.py collectstatic --no-input
@@ -129,7 +131,7 @@ ARG BRANCH_OVERRIDE
 
 RUN VERSION_OVERRIDE=${VERSION_OVERRIDE:-1.0.0} BRANCH_OVERRIDE=${BRANCH_OVERRIDE:-main} poetry run python label_studio/core/version.py || echo "Skip version generation"
 ################################### Stage: prod
-FROM python:${PYTHON_VERSION}-alpine AS production
+FROM python:${PYTHON_VERSION}-slim AS production
 
 ENV LS_DIR=/label-studio \
     HOME=/label-studio \
@@ -143,14 +145,12 @@ ENV LS_DIR=/label-studio \
 WORKDIR $LS_DIR
 
 # install prerequisites for app
-RUN apk add --no-cache \
-    expat \
-    mesa-gl \
-    glib \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     nginx \
     bash \
-    procps
+    procps \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
     mkdir -p $LS_DIR $LABEL_STUDIO_BASE_DATA_DIR $OPT_DIR && \

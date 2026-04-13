@@ -101,6 +101,21 @@ const ProjectCard = ({ project }) => {
                   <Menu contextual>
                     <Menu.Item href={`/projects/${project.id}/settings`}>Settings</Menu.Item>
                     <Menu.Item href={`/projects/${project.id}/data?labeling=1`}>Label</Menu.Item>
+                    <Menu.Item
+                      onClick={() => {
+                        if (!window.confirm(`Delete project "${project.title}"? This cannot be undone.`)) return;
+                        fetch(`/api/projects/${project.id}`, {
+                          method: "DELETE",
+                          headers: { "X-CSRFToken": document.cookie.match(/csrftoken=([^;]+)/)?.[1] || "" },
+                        }).then((res) => {
+                          if (res.ok) window.location.reload();
+                          else window.alert("Failed to delete project");
+                        });
+                      }}
+                      style={{ color: "#991B1B" }}
+                    >
+                      Delete
+                    </Menu.Item>
                   </Menu>
                 }
               >

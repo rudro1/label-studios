@@ -27,6 +27,7 @@ config: |
       .lsf-text-area__input:focus { outline:none !important; border-color:#6B7280 !important; }
       .lsf-text-area__add-button { display:none !important; }
       body[data-has-audio-regions="true"] .whole-audio-section { display:none !important; }
+      .lsf-choices[data-name="whole_audio_quality"] { display:none !important; }
     </Style>
     <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);">
       <Audio name="audio" value="$audio" zoom="true" hotkey="space"/>
@@ -75,10 +76,10 @@ config: |
         <Text name="lbl_rsn" value="Reason For Rejection"/>
       </View>
       <Choices name="invalid_reason" toName="audio" choice="single" showInline="true" perRegion="true">
-        <Choice value="Noise" style="display:inline-block; background:#FFF7F7; color:#111827; border:1.5px solid #FCA5A5; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Overlap" style="display:inline-block; background:#FFF7F7; color:#111827; border:1.5px solid #FCA5A5; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Silence" style="display:inline-block; background:#FFF7F7; color:#111827; border:1.5px solid #FCA5A5; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Inaudible" style="display:inline-block; background:#FFF7F7; color:#111827; border:1.5px solid #FCA5A5; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Noise" style="display:inline-block; background:#FFF3E0; color:#E65100; border:1.5px solid #FF9800; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Overlap" style="display:inline-block; background:#FFFDE7; color:#F57F17; border:1.5px solid #FDD835; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Silence" style="display:inline-block; background:#E3F2FD; color:#1565C0; border:1.5px solid #42A5F5; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Inaudible" style="display:inline-block; background:#F3E5F5; color:#6A1B9A; border:1.5px solid #AB47BC; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
         <Choice value="Other" style="display:inline-block; background:#FEF3C7; color:#92400E; border:1.5px solid #F59E0B; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
       </Choices>
     </View>

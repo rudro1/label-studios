@@ -125,8 +125,14 @@ const AudioView: FC<AudioProps> = observer(
       };
 
       const createRegion = (region: Region | Segment) => {
-        item.addRegion(region);
+        const r = item.addRegion(region);
         setHasRegions(true);
+        // Fixensy: segment তৈরির পর auto-select → visibleWhen="region-selected" panel দেখাবে
+        if (r) {
+          try {
+            item.annotation.selectArea(r);
+          } catch(_) {}
+        }
       };
 
       const selectRegion = (region: Region | Segment, event: MouseEvent) => {

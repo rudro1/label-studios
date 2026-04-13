@@ -139,6 +139,9 @@ export const AudioModel = types.compose(
       _ws: null,
       _wfFrame: null,
       _skip_seek_event: false,
+      _fixensy_intervalId: null,
+      _fixensy_wholeAudioSegId: null,
+      _fixensy_colorCache: null,
     }))
     .views((self) => ({
       get hasStates() {
@@ -348,6 +351,39 @@ export const AudioModel = types.compose(
 
       return {
         afterCreate() {
+          // Fixensy: color cache (MST safe - Map use করছি)
+          self._fixensy_colorCache = new Map();
+
+          // Fixensy: Instant color polling (100ms) - memory leak fixed
+          self._fixensy_intervalId = setInterval(() => {
+            try {
+              if (!self._ws) return;
+              let changed = false;
+              for (const r of self.regs || []) {
+                // সঠিক path: result.value.choices অথবা result.mainValue
+                const newKey = (r.results || [])
+                  .map(res => {
+                    // perRegion choices: value.choices array তে থাকে
+                    const choices = res?.value?.choices;
+                    if (Array.isArray(choices)) return choices.join(",");
+                    // fallback: mainValue
+                    const v = res?.mainValue;
+                    return Array.isArray(v) ? v.join(",") : (v || "");
+                  })
+                  .join("|");
+                const cachedKey = self._fixensy_colorCache.get(r.id);
+                if (cachedKey !== newKey) {
+                  self._fixensy_colorCache.set(r.id, newKey);
+                  self.updateRegionColorByChoices(r);
+                  changed = true;
+                }
+              }
+              // Whole Audio Invalid observe
+              self._fixensy_checkWholeAudio();
+              if (changed) self.requestWSUpdate();
+            } catch(_) {}
+          }, 100);
+
           dispose = observe(
             self,
             "activeLabelKey",
@@ -385,33 +421,91 @@ export const AudioModel = types.compose(
           );
         },
 
+        // Fixensy: Whole Audio Invalid - auto segment + block
+        _fixensy_checkWholeAudio() {
+          try {
+            if (!self._ws || !self.annotation) return;
+
+            // whole_audio_quality tag খুঁজি
+            const wholeTag = self.annotation.names && self.annotation.names.get("whole_audio_quality");
+            if (!wholeTag) return;
+
+            const selectedValues = wholeTag.selectedValues ? wholeTag.selectedValues() : [];
+            const isWholeInvalid = Array.isArray(selectedValues) && selectedValues.includes("Whole Audio Invalid");
+
+            if (isWholeInvalid) {
+              // segment already আছে কিনা
+              if (self._fixensy_wholeAudioSegId) return;
+
+              // duration পাই
+              const duration = self._ws.duration;
+              if (!duration || duration <= 0) return;
+
+              // পুরো audio জুড়ে segment তৈরি
+              const wsReg = self._ws.addRegion({
+                start: 0,
+                end: duration,
+                color: "rgba(153,27,27,0.7)",
+                labels: [],
+              }, false);
+
+              if (wsReg) {
+                self._fixensy_wholeAudioSegId = wsReg.id;
+              }
+
+              // নতুন segment বানানো block
+              if (self._ws.regions && typeof self._ws.regions.setCreateable === "function") {
+                self._ws.regions.setCreateable(false);
+              }
+
+            } else {
+              // uncheck - segment delete করি
+              if (self._fixensy_wholeAudioSegId) {
+                try {
+                  const wsReg = self._ws.regions.findRegion(self._fixensy_wholeAudioSegId);
+                  if (wsReg) wsReg.remove();
+                } catch(_) {}
+                self._fixensy_wholeAudioSegId = null;
+              }
+              // block তুলে দিই
+              if (self._ws.regions && typeof self._ws.regions.setCreateable === "function") {
+                self._ws.regions.setCreateable(true);
+              }
+            }
+          } catch(e) {}
+        },
+
         // Fixensy: perRegion choice change হলে segment color update করো
         updateRegionColorByChoices(region) {
           if (!region || !region._ws_region) return;
-
-          // Color map
-          const colorMap = {
-            // Quality
-            "Valid": "#10B981",
-            "Invalid": "#EF4444",
-            // Speaker
-            "Speaker A": "#3B82F6",
-            "Speaker B": "#8B5CF6",
-            "Speaker C": "#10B981",
-            // Invalid Reason
-            "Noise": "#EF4444",
-            "Overlap": "#F97316",
-            "Silence": "#6B7280",
-            "Inaudible": "#92400E",
-            "Other": "#F59E0B",
-          };
-
           try {
-            // Region এর সব results দেখো
             const results = region.results || [];
-            let finalColor = "#4A90D9"; // default blue
+            let finalColor = "rgba(74,144,217,0.5)"; // default blue
 
-            // Priority: invalid_reason > speaker > quality
+            // Fixensy Color Map - single, clean
+            const colorMap = {
+              // Quality
+              "Valid":                "rgba(16,185,129,0.6)",
+              "Invalid":              "rgba(239,68,68,0.6)",
+              // Speaker
+              "Speaker A":            "rgba(59,130,246,0.6)",
+              "Speaker B":            "rgba(139,92,246,0.6)",
+              "Speaker C":            "rgba(20,184,166,0.6)",
+              // Invalid Reason
+              "Noise":                "rgba(255,152,0,0.6)",
+              "Overlap":              "rgba(253,216,53,0.7)",
+              "Silence":              "rgba(66,165,245,0.6)",
+              "Inaudible":            "rgba(171,71,188,0.6)",
+              "Other":                "rgba(245,158,11,0.6)",
+              // Whole Audio
+              "Whole Audio Invalid":  "rgba(153,27,27,0.7)",
+            };
+
+            // Priority: reason > speaker > quality > default
+            // Valid + Speaker A  → Speaker A color (নীল)
+            // Invalid + Noise    → Noise color (কমলা)
+            // Invalid alone      → লাল
+            // Valid alone        → সবুজ
             let qualityColor = null;
             let speakerColor = null;
             let reasonColor = null;
@@ -419,28 +513,27 @@ export const AudioModel = types.compose(
             for (const result of results) {
               const value = result.mainValue;
               if (!value) continue;
-
               const choices = Array.isArray(value) ? value : [value];
               for (const choice of choices) {
-                if (choice === "Valid" || choice === "Invalid") {
-                  qualityColor = colorMap[choice];
+                if (["Valid", "Invalid"].includes(choice)) {
+                  qualityColor = colorMap[choice] || null;
                 }
                 if (["Speaker A", "Speaker B", "Speaker C"].includes(choice)) {
-                  speakerColor = colorMap[choice];
+                  speakerColor = colorMap[choice] || null;
                 }
-                if (["Noise", "Overlap", "Silence", "Inaudible", "Other"].includes(choice)) {
-                  reasonColor = colorMap[choice];
+                if (["Noise", "Overlap", "Silence", "Inaudible", "Other", "Whole Audio Invalid"].includes(choice)) {
+                  reasonColor = colorMap[choice] || null;
                 }
               }
             }
 
-            // Priority order: reason > speaker > quality > default
             if (reasonColor) finalColor = reasonColor;
             else if (speakerColor) finalColor = speakerColor;
             else if (qualityColor) finalColor = qualityColor;
 
             region._ws_region.update({ color: finalColor });
             self.requestWSUpdate();
+
           } catch (e) {
             console.warn("Fixensy color update error:", e);
           }
@@ -449,6 +542,14 @@ export const AudioModel = types.compose(
         needsUpdate() {
           self.handleNewRegions();
           self.requestWSUpdate();
+          // Fixensy: update all region colors on any annotation change
+          setTimeout(() => {
+            try {
+              for (const r of self.regs) {
+                self.updateRegionColorByChoices(r);
+              }
+            } catch(_) {}
+          }, 50);
         },
 
         requestWSUpdate() {
@@ -705,6 +806,14 @@ export const AudioModel = types.compose(
 
         beforeDestroy() {
           try {
+            if (self._fixensy_intervalId) {
+              clearInterval(self._fixensy_intervalId);
+              self._fixensy_intervalId = null;
+            }
+            if (self._fixensy_colorCache) {
+              self._fixensy_colorCache.clear();
+              self._fixensy_colorCache = null;
+            }
             if (updateTimeout) clearTimeout(updateTimeout);
             if (dispose) dispose();
             if (isDefined(self._ws)) {

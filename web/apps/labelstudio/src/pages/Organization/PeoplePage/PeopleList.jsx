@@ -11,6 +11,7 @@ import { CopyableTooltip } from "../../../components/CopyableTooltip/CopyableToo
 
 export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
   const api = useAPI();
+  const currentUserId = window.APP_SETTINGS?.user?.id || null;
   const [usersList, setUsersList] = useState();
   const [currentPage] = usePage("page", 1);
   const [currentPageSize] = usePageSize("page_size", 30);
@@ -43,6 +44,23 @@ export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
     [selectedUser],
   );
 
+  const removeUser = useCallback(
+    async (user, e) => {
+      e.stopPropagation();
+      if (!window.confirm(`Remove ${user.email} from organization?`)) return;
+      const response = await api.callApi("userMemberships", {
+        params: { pk: 1, userPk: user.id },
+        method: "DELETE",
+      });
+      if (response !== null && response !== undefined) {
+        setUsersList((prev) => prev.filter(({ user: u }) => u.id !== user.id));
+        setTotalItems((prev) => prev - 1);
+        if (selectedUser?.id === user.id) onSelect?.(null);
+      }
+    },
+    [selectedUser],
+  );
+
   useEffect(() => {
     fetchUsers(currentPage, currentPageSize);
   }, []);
@@ -66,10 +84,12 @@ export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
                 <div className={cn("people-list").elem("column").mix("email").toClassName()}>Email</div>
                 <div className={cn("people-list").elem("column").mix("name").toClassName()}>Name</div>
                 <div className={cn("people-list").elem("column").mix("last-activity").toClassName()}>Last Activity</div>
+                <div className={cn("people-list").elem("column").mix("action").toClassName()}>Action</div>
               </div>
               <div className={cn("people-list").elem("body").toClassName()}>
                 {usersList.map(({ user }) => {
                   const active = user.id === selectedUser?.id;
+                  const isSelf = currentUserId && user.id === currentUserId;
 
                   return (
                     <div
@@ -88,6 +108,25 @@ export const PeopleList = ({ onSelect, selectedUser, defaultSelected }) => {
                       </div>
                       <div className={cn("people-list").elem("field").mix("last-activity").toClassName()}>
                         {formatDistance(new Date(user.last_activity), new Date(), { addSuffix: true })}
+                      </div>
+                      <div className={cn("people-list").elem("field").mix("action").toClassName()}>
+                        {!isSelf && (
+                          <button
+                            onClick={(e) => removeUser(user, e)}
+                            style={{
+                              background: "#FEE2E2",
+                              color: "#991B1B",
+                              border: "1px solid #EF4444",
+                              borderRadius: "6px",
+                              padding: "4px 10px",
+                              fontSize: "12px",
+                              fontWeight: "600",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
