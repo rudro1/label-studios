@@ -1,0 +1,44 @@
+
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=securepassword
+      - POSTGRES_DB=labelstudio
+    restart: always
+
+  label_studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fixensy:latest
+    ports:
+      - "80:8080"
+    environment:
+      - LABEL_STUDIO_DATABASE_HOST=db
+      - LABEL_STUDIO_DATABASE_PORT=5432
+      - LABEL_STUDIO_DATABASE_USER=admin
+      - LABEL_STUDIO_DATABASE_PASSWORD=securepassword
+      - LABEL_STUDIO_DATABASE_NAME=labelstudio
+      - LABEL_STUDIO_DATABASE_ENGINE=django.db.backends.postgresql
+      - DJANGO_DB=default
+      - POSTGRE_HOST=db
+      - POSTGRE_PORT=5432
+      - POSTGRE_USER=admin
+      - POSTGRE_PASSWORD=securepassword
+      - POSTGRE_NAME=labelstudio
+      - LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK=true
+      - LABEL_STUDIO_ALLOW_ORGANIZATION_INVITATIONS=true
+      - LABEL_STUDIO_USERNAME=bisal.s@fixensy.com
+      - LABEL_STUDIO_PASSWORD=12345678901
+    depends_on:
+      - db
+    volumes:
+      - ls_data:/label-studio/data
+    restart: always
+
+volumes:
+  postgres_data:
+  ls_data:
