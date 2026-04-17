@@ -14,7 +14,7 @@ services:
       dockerfile: Dockerfile
     image: fixensy:latest
     ports:
-      - "127.0.0.1:7860:7860"
+      - "80:7860"
     environment:
       - LABEL_STUDIO_DATABASE_HOST=db
       - LABEL_STUDIO_DATABASE_PORT=5432

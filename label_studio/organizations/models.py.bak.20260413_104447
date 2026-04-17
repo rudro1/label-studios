@@ -28,34 +28,6 @@ class OrganizationMember(OrganizationMemberMixin, models.Model):
     created_at = models.DateTimeField(_('created at'), auto_now_add=True)
     updated_at = models.DateTimeField(_('updated at'), auto_now=True)
 
-    ROLE_ADMIN = 'admin'
-    ROLE_ANNOTATOR = 'annotator'
-    ROLE_CHOICES = [
-        (ROLE_ADMIN, 'Admin'),
-        (ROLE_ANNOTATOR, 'Annotator'),
-    ]
-
-    role = models.CharField(
-        max_length=20,
-        choices=ROLE_CHOICES,
-        default=ROLE_ANNOTATOR,
-        help_text='Role of the member in the organization',
-    )
-
-    ROLE_ADMIN = 'admin'
-    ROLE_ANNOTATOR = 'annotator'
-    ROLE_CHOICES = [
-        (ROLE_ADMIN, 'Admin'),
-        (ROLE_ANNOTATOR, 'Annotator'),
-    ]
-
-    role = models.CharField(
-        max_length=20,
-        choices=ROLE_CHOICES,
-        default=ROLE_ANNOTATOR,
-        help_text='Role of the member in the organization',
-    )
-
     deleted_at = models.DateTimeField(
         _('deleted at'),
         default=None,
@@ -82,22 +54,6 @@ class OrganizationMember(OrganizationMemberMixin, models.Model):
     @cached_property
     def is_owner(self):
         return self.user.id == self.organization.created_by.id
-
-    @cached_property
-    def is_admin(self):
-        return self.role == self.ROLE_ADMIN or self.is_owner
-
-    @cached_property
-    def is_annotator(self):
-        return self.role == self.ROLE_ANNOTATOR and not self.is_owner
-
-    @cached_property
-    def is_admin(self):
-        return self.role == self.ROLE_ADMIN or self.is_owner
-
-    @cached_property
-    def is_annotator(self):
-        return self.role == self.ROLE_ANNOTATOR and not self.is_owner
 
     class Meta:
         ordering = ['pk']

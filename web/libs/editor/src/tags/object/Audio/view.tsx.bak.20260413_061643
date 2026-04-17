@@ -125,10 +125,6 @@ const AudioView: FC<AudioProps> = observer(
       };
 
       const createRegion = (region: Region | Segment) => {
-        // Fixensy: Whole Audio Invalid active থাকলে block
-        if (item._fixensy_wholeAudioSegId) {
-          return;
-        }
         const r = item.addRegion(region);
         setHasRegions(true);
         // Fixensy: segment তৈরির পর auto-select → visibleWhen="region-selected" panel দেখাবে
@@ -140,10 +136,6 @@ const AudioView: FC<AudioProps> = observer(
       };
 
       const selectRegion = (region: Region | Segment, event: MouseEvent) => {
-        // Fixensy: Whole Audio Invalid segment click block
-        if (item._fixensy_wholeAudioSegId && region.id === item._fixensy_wholeAudioSegId) {
-          return;
-        }
         const annotation = item.annotation;
 
         const growSelection = event.metaKey || event.ctrlKey;
@@ -179,11 +171,7 @@ const AudioView: FC<AudioProps> = observer(
           return;
         }
 
-        // Fixensy: toggle না করে সবসময় select করো
-        if (itemRegion) {
-          item.annotation.regionStore.unselectAll();
-          item.annotation.selectArea(itemRegion);
-        }
+        itemRegion && item.annotation.regionStore.toggleSelection(itemRegion, region.selected);
 
         if (targetInWave) {
           targetInWave.handleSelected(region.selected);

@@ -179,11 +179,7 @@ const AudioView: FC<AudioProps> = observer(
           return;
         }
 
-        // Fixensy: toggle না করে সবসময় select করো
-        if (itemRegion) {
-          item.annotation.regionStore.unselectAll();
-          item.annotation.selectArea(itemRegion);
-        }
+        itemRegion && item.annotation.regionStore.toggleSelection(itemRegion, region.selected);
 
         if (targetInWave) {
           targetInWave.handleSelected(region.selected);

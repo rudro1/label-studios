@@ -480,25 +480,25 @@ export const AudioModel = types.compose(
           if (!region || !region._ws_region) return;
           try {
             const results = region.results || [];
-            let finalColor = "rgba(74,144,217,0.88)"; // default blue
+            let finalColor = "rgba(74,144,217,0.5)"; // default blue
 
             // Fixensy Color Map - single, clean
             const colorMap = {
               // Quality
-              "Valid":                "rgba(16,185,129,0.88)",
-              "Invalid":              "rgba(239,68,68,0.88)",
+              "Valid":                "rgba(16,185,129,0.6)",
+              "Invalid":              "rgba(239,68,68,0.6)",
               // Speaker
-              "Speaker A":            "rgba(59,130,246,0.88)",
-              "Speaker B":            "rgba(139,92,246,0.88)",
-              "Speaker C":            "rgba(20,184,166,0.88)",
+              "Speaker A":            "rgba(59,130,246,0.6)",
+              "Speaker B":            "rgba(139,92,246,0.6)",
+              "Speaker C":            "rgba(20,184,166,0.6)",
               // Invalid Reason
-              "Noise":                "rgba(255,152,0,0.88)",
-              "Overlap":              "rgba(253,216,53,0.88)",
-              "Silence":              "rgba(66,165,245,0.88)",
-              "Inaudible":            "rgba(171,71,188,0.88)",
-              "Other":                "rgba(245,158,11,0.88)",
+              "Noise":                "rgba(255,152,0,0.6)",
+              "Overlap":              "rgba(253,216,53,0.7)",
+              "Silence":              "rgba(66,165,245,0.6)",
+              "Inaudible":            "rgba(171,71,188,0.6)",
+              "Other":                "rgba(245,158,11,0.6)",
               // Whole Audio
-              "Whole Audio Invalid":  "rgba(153,27,27,0.92)",
+              "Whole Audio Invalid":  "rgba(153,27,27,0.7)",
             };
 
             // Priority: reason > speaker > quality > default
