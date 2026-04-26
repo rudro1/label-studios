@@ -82,7 +82,8 @@ export class Segment extends Events<SegmentEvents> {
     this.waveform = waveform;
     this.visualizer = visualizer;
     this.controller = controller;
-    this.handleWidth = 2;
+    // Wider edge grab improves usability for fine resizing on dense waveforms.
+    this.handleWidth = 24;
     this.isDragging = false;
     this.draggingStartPosition = null;
     this.isGrabbingEdge = { isRightEdge: false, isLeftEdge: false };
@@ -198,11 +199,11 @@ export class Segment extends Events<SegmentEvents> {
   }
 
   get timelineHeight() {
-    return this.visualizer.timelineHeight || defaults.timelineHeight;
+    return (this.visualizer as any).timelineHeight || defaults.timelineHeight;
   }
 
   get timelinePlacement() {
-    return this.visualizer.timelinePlacement || defaults.timelinePlacement;
+    return (this.visualizer as any).timelinePlacement || defaults.timelinePlacement;
   }
 
   get options(): SegmentOptions {
@@ -346,15 +347,15 @@ export class Segment extends Events<SegmentEvents> {
     const layer = this.controller.layerGroup;
 
     if (selected || highlighted || active) {
-      color.darken(0.4);
+      color.darken(0.28);
     }
 
     // @todo - this should account for timeline placement and start at the reservedSpace height
-    layer.fillStyle = color.clone().translucent(0.77).toString();
+    layer.fillStyle = color.clone().translucent(selected ? 0.7 : 0.82).toString();
     layer.fillRect(this.xStart, top, this.width, height);
 
     // Render grab lines
-    layer.fillStyle = selected ? color.toString() : color.clone().translucent(0.6).toString();
+    layer.fillStyle = selected ? color.clone().translucent(0.86).toString() : color.clone().translucent(0.68).toString();
     layer.fillRect(this.xStart, top, this.handleWidth, height);
     layer.fillRect(this.xEnd - this.handleWidth, top, this.handleWidth, height);
   }

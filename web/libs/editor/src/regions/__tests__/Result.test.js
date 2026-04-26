@@ -75,6 +75,11 @@ import Registry from "../../core/Registry";
 
 const MinimalControl = Registry.modelsArr()[0];
 const MinimalObject = Registry.objectTypes()[0];
+const MinimalWrapper = types.model("MinimalWrapper", {
+  visiblewhen: types.optional(types.string, ""),
+  control: MinimalControl,
+  object: MinimalObject,
+});
 
 const MinimalArea = types
   .model("MinimalArea", {
@@ -318,6 +323,37 @@ describe("Result", () => {
       const root = createTreeWithControl({ visiblewhen: "choice-unselected" });
       const result = root.annotationStore.selected.areas[0].results[0];
       expect(result.canBeSubmitted).toBe(true);
+    });
+
+    it("honors parent choice-selected visibility for perregion controls", () => {
+      const WrappedRoot = types.model("WrappedRoot", {
+        wrapper: MinimalWrapper,
+        annotationStore: types.optional(AnnotationStore, { selected: null }),
+      });
+
+      const root = WrappedRoot.create({
+        wrapper: {
+          visiblewhen: "choice-selected",
+          control: { id: "c1", perregion: true },
+          object: { id: "o1" },
+        },
+        annotationStore: {
+          selected: {
+            areas: [
+              {
+                id: "a1",
+                results: [
+                  { from_name: "c1", to_name: "o1", type: "rectanglelabels", value: { labels: ["L1"] }, meta: {} },
+                ],
+                parentID: null,
+              },
+            ],
+          },
+        },
+      });
+
+      const result = root.annotationStore.selected.areas[0].results[0];
+      expect(result.canBeSubmitted).toBe(false);
     });
   });
 

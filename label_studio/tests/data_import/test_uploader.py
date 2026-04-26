@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from core.utils.io import validate_upload_url
-from data_import.uploader import check_tasks_max_file_size, load_tasks, tasks_from_url
+from data_import.uploader import check_tasks_max_file_size, get_filename_from_url, load_tasks, tasks_from_url
 from django.conf import settings
 from organizations.tests.factories import OrganizationFactory
 from projects.tests.factories import ProjectFactory
@@ -178,6 +178,15 @@ class TestTasksFromUrl:
         mock_file_upload.format_could_be_tasks_list = format_could_be_tasks_list
         return mock_file_upload
 
+    @mock.patch('requests.get')
+    def test_get_filename_from_url_closes_response(self, mock_requests_get):
+        mock_response = Mock()
+        mock_response.headers = {'Content-Disposition': 'attachment; filename="demo.wav"'}
+        mock_requests_get.return_value = mock_response
+
+        assert get_filename_from_url('https://example.com/demo.wav') == 'demo.wav'
+        assert mock_response.close.called
+
     @mock.patch('data_import.uploader.ssrf_safe_get')  # Mock where it's used, not where it's defined
     @mock.patch('data_import.uploader.create_file_upload')
     @mock.patch('data_import.models.FileUpload.load_tasks_from_uploaded_files')
@@ -209,6 +218,7 @@ class TestTasksFromUrl:
         # Verify no exception was raised and correct filename was used
         assert file_upload_ids == [1]
         assert could_be_tasks_list is True
+        assert mock_ssrf_safe_get.return_value.close.called
         mock_create_file_upload.assert_called_once()
         args, kwargs = mock_create_file_upload.call_args
         # After redirect, filename should be from the resolved URL

@@ -208,12 +208,6 @@ const Result = types
         return null;
       }
 
-      if (control.perregion) {
-        const label = control.whenlabelvalue;
-
-        if (label && !self.area.hasLabel(label)) return false;
-      }
-
       // picks leaf's (last item in a path) value for Taxonomy or usual Choice value for Choices
       const innerResults = (r) => r.map((s) => (Array.isArray(s) ? s.at(-1) : s));
 
@@ -232,9 +226,7 @@ const Result = types
           if (!result) return false;
           if (
             choiceValues &&
-            !choiceValues.some((v) =>
-              innerResults(result.mainValue).some((vv) => result.from_name.selectedChoicesMatch(v, vv)),
-            )
+            !choiceValues.some((v) => innerResults(result.mainValue).some((vv) => result.from_name.selectedChoicesMatch(v, vv)))
           )
             return false;
         } else {
@@ -251,12 +243,28 @@ const Result = types
         return true;
       };
 
+      if (control.perregion) {
+        const label = control.whenlabelvalue;
+        const choiceSelectedFromParent = findParentWithVisibleWhen(control, "choice-selected");
+        const choiceUnselectedFromParent = findParentWithVisibleWhen(control, "choice-unselected");
+
+        if (control.visiblewhen === "choice-selected" || choiceSelectedFromParent) {
+          return isChoiceSelected();
+        }
+
+        if (control.visiblewhen === "choice-unselected" || choiceUnselectedFromParent) {
+          return !isChoiceSelected();
+        }
+
+        if (label && !self.area.hasLabel(label)) return false;
+      }
+
       // When perregion is used, we must ignore the visibility of the components and focus only on the selection
-      if (control.perregion && control.visiblewhen === "choice-selected") {
+      if (!control.perregion && control.visiblewhen === "choice-selected") {
         return isChoiceSelected();
       }
 
-      if (control.visiblewhen === "choice-unselected") {
+      if (!control.perregion && control.visiblewhen === "choice-unselected") {
         return !isChoiceSelected();
       }
 

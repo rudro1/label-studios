@@ -77,6 +77,7 @@ const mockSeekForward = jest.fn();
 const mockSeek = jest.fn();
 const mockSyncCursor = jest.fn();
 const mockClearSegments = jest.fn();
+const mockSetZoom = jest.fn();
 const mockRegionDrawableTarget = jest.fn();
 const mockSetDrawingColor = jest.fn();
 const mockSetLabels = jest.fn();
@@ -85,6 +86,9 @@ const mockResetDrawingColor = jest.fn();
 const mockResetLabels = jest.fn();
 const mockFindRegion = jest.fn(() => null);
 const mockHandleSelected = jest.fn();
+const mockScrollToRegion = jest.fn();
+const mockRegionA = { id: "seg-a", start: 0, end: 2, external: false, handleSelected: jest.fn(), scrollToRegion: mockScrollToRegion };
+const mockRegionB = { id: "seg-b", start: 2, end: 4, external: false, handleSelected: jest.fn(), scrollToRegion: mockScrollToRegion };
 
 jest.mock("../../../../lib/AudioUltra/react", () => {
   const React = require("react");
@@ -100,7 +104,8 @@ jest.mock("../../../../lib/AudioUltra/react", () => {
         syncCursor: mockSyncCursor,
         regions: {
           clearSegments: mockClearSegments,
-          regions: [],
+          regions: [mockRegionA, mockRegionB],
+          list: [mockRegionA, mockRegionB],
           findRegion: mockFindRegion,
         },
         regionDrawableTarget: mockRegionDrawableTarget,
@@ -128,7 +133,7 @@ jest.mock("../../../../lib/AudioUltra/react", () => {
         setPlaying: jest.fn(),
         setVolume: jest.fn(),
         setRate: jest.fn(),
-        setZoom: jest.fn(),
+        setZoom: mockSetZoom,
         setAmp: jest.fn(),
       };
     },
@@ -176,6 +181,7 @@ const defaultItem = {
   regs: [],
   addRegion: jest.fn(),
   updateRegion: jest.fn(),
+  findRegionByWsRegion: jest.fn(() => null),
   annotationStore: {
     store: { settings: { showLabels: true } },
   },
@@ -273,6 +279,59 @@ describe("Audio view", () => {
         fireEvent.click(visibilityControl as HTMLElement);
         expect(mockGetLayer).toHaveBeenCalled();
       }
+    });
+
+    it("zoom buttons adjust waveform zoom", () => {
+      const requestAnimationFrameSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
+        callback(window.performance.now() + 1000);
+        return 1;
+      });
+      const cancelAnimationFrameSpy = jest.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+
+      render(<Audio item={defaultItem as any} />);
+      fireEvent.click(screen.getByRole("button", { name: /zoom in waveform/i }));
+      fireEvent.click(screen.getByRole("button", { name: /zoom out waveform/i }));
+      expect(mockSetZoom).toHaveBeenCalledWith(1.2);
+      const numericZoomCalls = mockSetZoom.mock.calls
+        .map((args) => args[0])
+        .filter((value) => typeof value === "number") as number[];
+      expect(numericZoomCalls.every((value) => value >= 1)).toBe(true);
+
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+    });
+
+    it("wheel input smoothly zooms the waveform", () => {
+      const requestAnimationFrameSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((callback: FrameRequestCallback) => {
+        callback(window.performance.now() + 1000);
+        return 1;
+      });
+      const cancelAnimationFrameSpy = jest.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+
+      render(<Audio item={defaultItem as any} />);
+      const audioShell =
+        (screen.getByRole("button", { name: /zoom in waveform/i }).closest('[class*="audio-tag"]') as HTMLElement | null) ??
+        (document.querySelector('[class*="audio-tag"]') as HTMLElement | null);
+
+      expect(audioShell).toBeTruthy();
+      fireEvent.wheel(audioShell as HTMLElement, { deltaY: -120 });
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+      expect(mockSetZoom).toHaveBeenCalled();
+      expect(mockSetZoom.mock.calls[0][0]).toBeGreaterThan(1);
+
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+    });
+
+    it("Tab cycles to the first segment when the audio area has focus", () => {
+      render(<Audio item={defaultItem as any} />);
+      const audioHost = document.querySelector('[tabindex="0"]') as HTMLElement;
+      expect(audioHost).toBeTruthy();
+      audioHost.focus();
+      fireEvent.keyDown(audioHost, { key: "Tab" });
+      expect(mockRegionA.handleSelected).toHaveBeenCalledWith(true);
+      expect(mockScrollToRegion).toHaveBeenCalled();
     });
   });
 

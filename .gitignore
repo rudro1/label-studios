@@ -18,6 +18,7 @@ db/
 logfile
 venv/
 .venv
+.venv_fixensy/
 .vscode
 .autoenv
 .env
@@ -58,6 +59,10 @@ label_studio/core/settings/local.py
 deploy/nginx/certs/*
 !deploy/nginx/certs/.placeholder
 mydata/
+data/
+media/
+export/
+backups/
 deploy/pgsql/certs/*
 !deploy/pgsql/certs/.placeholder
 
@@ -85,3 +90,12 @@ CLAUDE.local.md
 web/libs/editor/tests/coverage
 web/coverage-chunks
 .cache
+
+# Fixstudio
+.venv_fixensy/
+.venv*/
+*.bak
+*.bak.*
+*.bak2
+*.original.md
+config.yml.bak.*

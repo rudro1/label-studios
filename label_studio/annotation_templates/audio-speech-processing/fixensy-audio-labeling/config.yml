@@ -6,11 +6,14 @@ details: |
   <h1>Fixensy Audio Labeling</h1>
   <dl>
     <dt>Features</dt>
-    <dd>Draw segments, mark Valid or Invalid, select speaker, transcribe, or mark whole audio as invalid.</dd>
+    <dd>Draw segments, mark Valid or Invalid, select speaker, transcribe, or mark whole audio as invalid. Shift+drag over an existing segment to create a nested segment.</dd>
   </dl>
 config: |
-  <View style="font-family:Inter,system-ui,-apple-system,sans-serif; background:#F9FAFB; padding:24px; max-width:900px; margin:0 auto;">
+  <View className="fixensy-page" style="font-family:Inter,system-ui,-apple-system,sans-serif; background:#F9FAFB; padding:14px 18px; max-width:1480px; margin:0 auto; width:100%; box-sizing:border-box;">
     <Style>
+      :root {
+        --sticky-items-offset: 0px !important;
+      }
       sup { display:none !important; }
       .lsf-choice__hotkey { display:none !important; }
       .lsf-hotkey { display:none !important; }
@@ -24,115 +27,202 @@ config: |
       .lsf-labels { display:none !important; }
       .lsf-text-area { width:100% !important; display:block !important; }
       .lsf-text-area__input { display:block !important; width:100% !important; min-height:120px !important; padding:12px !important; border:1.5px solid #D1D5DB !important; border-radius:8px !important; background:#FFFFFF !important; color:#111827 !important; font-size:14px !important; font-family:Inter,system-ui,sans-serif !important; resize:vertical !important; box-sizing:border-box !important; margin-top:8px !important; }
-      .lsf-text-area__input:focus { outline:none !important; border-color:#6B7280 !important; }
+      .lsf-text-area__input:focus { outline:none !important; border-color:#2563EB !important; box-shadow:0 0 0 3px rgba(37,99,235,0.15) !important; }
       .lsf-text-area__add-button { display:none !important; }
       body[data-has-audio-regions="true"] .whole-audio-section { display:none !important; }
 
-      /* ===== DARK MODE FIX ===== */
-
-      /* Valid/Invalid/Speaker - outlined buttons dark mode fix */
-      /* light bg → dark bg, keep colored border + text */
+      /* Dark mode overrides */
       .lsf-main-content--dark [style*="background:#F0FDF4"],
       .lsf-main-content--dark [style*="background:#FFF1F1"],
       .lsf-main-content--dark [style*="background:#EFF6FF"],
       .lsf-main-content--dark [style*="background:#F5F3FF"],
-      .lsf-main-content--dark [style*="background:#F0FDF9"] {
-        background:#1E293B !important;
-      }
+      .lsf-main-content--dark [style*="background:#F0FDF9"] { background:#1E293B !important; }
+      .lsf-main-content--dark [style*="background:#FFF3E0"] { background:#1C1209 !important; color:#FB923C !important; border-color:#F97316 !important; }
+      .lsf-main-content--dark [style*="background:#FFFDE7"] { background:#1C1A09 !important; color:#FACC15 !important; border-color:#EAB308 !important; }
+      .lsf-main-content--dark [style*="background:#E3F2FD"] { background:#0A1628 !important; color:#60A5FA !important; border-color:#3B82F6 !important; }
+      .lsf-main-content--dark [style*="background:#F3E5F5"] { background:#180B24 !important; color:#C084FC !important; border-color:#A855F7 !important; }
+      .lsf-main-content--dark [style*="background:#FEF3C7"] { background:#1C1409 !important; color:#FCD34D !important; border-color:#F59E0B !important; }
+      .lsf-main-content--dark .lsf-text-area__input { background:#1F2937 !important; color:#F9FAFB !important; border-color:#4B5563 !important; }
+      .lsf-main-content--dark [style*="color:#6B7280"] { color:#D1D5DB !important; }
+      .lsf-main-content--dark [style*="background:#FFFFFF"] { background:#1F2937 !important; border-color:#374151 !important; box-shadow:0 1px 3px rgba(0,0,0,0.3) !important; }
+      .lsf-main-content--dark [style*="background:#F9FAFB"] { background:#0F172A !important; }
+      .lsf-main-content--dark [style*="background:#FFF5F5"] { background:#2A1414 !important; border-color:#7F1D1D !important; }
+      .lsf-main-content--dark [style*="background:#FFFBEB"] { background:#1F1809 !important; border-color:#F59E0B !important; }
+      .lsf-main-content--dark [style*="color:#7F1D1D"],
+      .lsf-main-content--dark [style*="color:#92400E"] { color:#FCA5A5 !important; }
+      .lsf-main-content--dark [style*="background:#EFF6FF"].hint-box { background:#0A1628 !important; border-color:#1E40AF !important; color:#93C5FD !important; }
 
-      /* Noise/Overlap/Silence/Inaudible/Other - dark mode */
-      .lsf-main-content--dark [style*="background:#FFF3E0"] {
-        background:#1C1209 !important;
-        color:#FB923C !important;
-        border-color:#F97316 !important;
-      }
-      .lsf-main-content--dark [style*="background:#FFFDE7"] {
-        background:#1C1A09 !important;
-        color:#FACC15 !important;
-        border-color:#EAB308 !important;
-      }
-      .lsf-main-content--dark [style*="background:#E3F2FD"] {
-        background:#0A1628 !important;
-        color:#60A5FA !important;
-        border-color:#3B82F6 !important;
-      }
-      .lsf-main-content--dark [style*="background:#F3E5F5"] {
-        background:#180B24 !important;
-        color:#C084FC !important;
-        border-color:#A855F7 !important;
-      }
-      .lsf-main-content--dark [style*="background:#FEF3C7"] {
-        background:#1C1409 !important;
-        color:#FCD34D !important;
-        border-color:#F59E0B !important;
-      }
+      .lsf-main-content--dark [style*="background:#FFF1E0"] { background:#1F1408 !important; color:#FFB570 !important; border-color:#FF8C00 !important; }
+      .lsf-main-content--dark [style*="background:#FFF9DB"] { background:#201B05 !important; color:#FFE45C !important; border-color:#FFD700 !important; }
+      .lsf-main-content--dark [style*="background:#EFE6FB"] { background:#1A1230 !important; color:#C6A8FF !important; border-color:#9370DB !important; }
+      .lsf-main-content--dark [style*="background:#E0F7F5"] { background:#082621 !important; color:#7BE5DD !important; border-color:#20B2AA !important; }
 
-      /* TextArea dark mode */
+      /* Dark-mode visibility for the new vivid solid buttons:
+         keep their hue + white text but soften box-shadow + drop the heavy
+         border on dark canvas so they don't look like cut-out rectangles. */
+      .lsf-main-content--dark [style*="background:#16A34A"],
+      .lsf-main-content--dark [style*="background:#DC2626"],
+      .lsf-main-content--dark [style*="background:#1D4ED8"],
+      .lsf-main-content--dark [style*="background:#7C3AED"],
+      .lsf-main-content--dark [style*="background:#EA580C"],
+      .lsf-main-content--dark [style*="background:#F97316"],
+      .lsf-main-content--dark [style*="background:#EAB308"],
+      .lsf-main-content--dark [style*="background:#0EA5E9"],
+      .lsf-main-content--dark [style*="background:#A855F7"],
+      .lsf-main-content--dark [style*="background:#FF8C00"],
+      .lsf-main-content--dark [style*="background:#FFD700"],
+      .lsf-main-content--dark [style*="background:#9370DB"],
+      .lsf-main-content--dark [style*="background:#20B2AA"],
+      .lsf-main-content--dark [style*="background:#EC4899"] {
+        border-color: rgba(255,255,255,0.18) !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.6) !important;
+      }
+      /* Lighten container cards on dark canvas. */
+      .lsf-main-content--dark .fixensy-page > div[style*="background:#FFFFFF"] {
+        background:#0f1218 !important; border-color:#1f2937 !important; color:#e5e7eb !important;
+      }
+      .lsf-main-content--dark .fixensy-wave-shell {
+        background:#0f1218 !important; border-color:#1f2937 !important;
+      }
       .lsf-main-content--dark .lsf-text-area__input {
-        background:#1F2937 !important;
-        color:#F9FAFB !important;
-        border-color:#4B5563 !important;
+        background:#0b0f15 !important; color:#f1f5f9 !important; border-color:#1f2937 !important;
       }
 
-      /* Section headers dark mode */
-      .lsf-main-content--dark [style*="color:#6B7280"] {
-        color:#D1D5DB !important;
+      /* Segment paint depth — Label Studio default canvas overlay is too pale
+         (~30% alpha). Bump it via the underlying canvas wrapper so deep odd
+         hues stay readable on both bright and dark waveform backgrounds. */
+      .lsf-audio-tag__region,
+      .lsf-region,
+      [class*="region__shape"],
+      canvas + div[style*="rgba"] { filter: saturate(1.25) contrast(1.15) !important; }
+
+      .fixensy-page { max-width:1480px !important; margin:0 auto !important; padding:14px 18px !important; }
+      .fixensy-wave-shell {
+        position: sticky;
+        top: 0;
+        z-index: 2000;
+        background: #FFFFFF;
+        margin: -14px -18px 20px -18px;
+        padding: 16px 20px;
+        border-bottom: 1.5px solid #D1D5DB;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        transition: all 0.2s ease;
       }
-      .lsf-main-content--dark [style*="color:#9CA3AF"] {
-        color:#9CA3AF !important;
+
+      .fixensy-wave-shell:hover {
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      }
+
+      @media (max-width: 900px) {
+        .fixensy-page { max-width:100% !important; padding:10px !important; }
+        .fixensy-wave-shell { top: 0; margin: -10px -10px 14px -10px; padding: 12px 14px; }
       }
     </Style>
-    <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-      <Audio name="audio" value="$audio" zoom="true" hotkey="space"/>
+
+    <!-- How-to hint -->
+    <View className="hint-box" style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:10px; padding:12px 16px; margin-bottom:14px; font-size:13px; color:#1E40AF;">
+      <View style="font-weight:700; margin-bottom:4px;">How to label</View>
+      Click-drag on waveform to create a segment. Click a segment to edit it. Drag segment body to move, drag edges to resize. Shift+drag on a segment to create a nested inner segment. Space toggles play/pause.
+    </View>
+
+    <!-- Waveform box (sticky at top while scrolling) -->
+    <View className="fixensy-wave-shell" style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:16px 18px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+      <Audio name="audio" value="$audio" zoom="true" hotkey="space"
+             defaultZoom="1" defaultSpeed="1" defaultVolume="1"/>
+      <!-- One Segment label only. Paint is intentionally deep + odd so a
+           segment is identifiable on the waveform at a glance. Per-segment
+           Valid/Invalid/Speaker decisions are driven by the panels below. -->
       <Labels name="labels" toName="audio">
-        <Label value="Segment" background="#4A90D9" selected="true"/>
+        <!-- Deep magenta — high-contrast and unmistakable on grey waveform. -->
+        <Label value="Segment" background="#C2185B" selected="true"/>
       </Labels>
     </View>
-    <View className="whole-audio-section" style="background:#FFF5F5; border:1px solid #FECACA; border-radius:12px; padding:10px 16px; margin-bottom:16px;">
-      <View style="font-size:12px; color:#9CA3AF;">
+
+    <!-- Whole-audio invalid (hidden once any region exists) -->
+    <View className="whole-audio-section" style="background:#FFF5F5; border:1px solid #FECACA; border-radius:12px; padding:12px 16px; margin-bottom:16px;">
+      <View style="font-size:12px; font-weight:700; color:#7F1D1D; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+        Whole audio
+      </View>
+      <View style="font-size:12px; color:#9B1C1C; margin-bottom:10px;">
+        Use this only when the entire audio is unusable (no segments needed).
       </View>
       <Choices name="whole_audio_quality" toName="audio" choice="single" showInline="true">
-        <Choice value="Whole Audio Invalid" style="display:inline-block; background:#FEE2E2; color:#991B1B; border:1.5px solid #EF4444; padding:4px 12px; border-radius:20px; font-weight:600; font-size:12px; cursor:pointer;"/>
+        <Choice value="Whole Audio Invalid" style="display:inline-block; background:linear-gradient(135deg,#EF4444 0%,#991B1B 100%); color:#FFFFFF; border:2px solid #7F1D1D; padding:9px 20px; border-radius:24px; font-weight:700; font-size:13px; letter-spacing:0.4px; cursor:pointer; box-shadow:0 4px 10px rgba(153,27,27,0.4), inset 0 1px 0 rgba(255,255,255,0.2);"/>
       </Choices>
+      <View visibleWhen="choice-selected" whenTagName="whole_audio_quality" whenChoiceValue="Whole Audio Invalid" style="margin-top:12px;">
+        <View style="font-size:12px; font-weight:700; color:#7F1D1D; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+          Reason (required)
+        </View>
+        <TextArea name="whole_audio_reason" toName="audio" placeholder="Why is the whole audio unusable? Be specific..." rows="3" editable="true" required="true" requiredMessage="Reason is required when marking the whole audio invalid." showSubmitButton="false" maxSubmissions="1"/>
+      </View>
     </View>
+
+    <!-- Per-segment quality (shows the clicked segment's panel) -->
     <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="region-selected">
       <View style="font-size:12px; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+        Segment quality
       </View>
       <View style="font-size:12px; color:#9CA3AF; margin-bottom:14px;">
+        Mark the selected segment as Valid or Invalid. Required.
       </View>
-      <Choices name="quality" toName="audio" choice="single" required="true" showInline="true" perRegion="true">
-        <Choice value="Valid" style="display:inline-block; background:#F0FDF4; color:#059669; border:2.5px solid #059669; padding:10px 28px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:700; font-size:14px; cursor:pointer;"/>
-        <Choice value="Invalid" style="display:inline-block; background:#FFF1F1; color:#DC2626; border:2.5px solid #DC2626; padding:10px 28px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:700; font-size:14px; cursor:pointer;"/>
+      <Choices name="quality" toName="audio" choice="single" required="true" requiredMessage="Mark each segment as Valid or Invalid before submitting." showInline="true" perRegion="true">
+        <Choice value="Valid" style="display:inline-block; background:linear-gradient(135deg,#10B981 0%,#059669 100%); color:#FFFFFF; border:2px solid #065F46; padding:11px 30px; border-radius:10px; margin:6px; min-width:140px; text-align:center; font-weight:700; font-size:14px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 4px 10px rgba(5,150,105,0.35), inset 0 1px 0 rgba(255,255,255,0.2);"/>
+        <Choice value="Invalid" style="display:inline-block; background:linear-gradient(135deg,#EF4444 0%,#B91C1C 100%); color:#FFFFFF; border:2px solid #7F1D1D; padding:11px 30px; border-radius:10px; margin:6px; min-width:140px; text-align:center; font-weight:700; font-size:14px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 4px 10px rgba(220,38,38,0.35), inset 0 1px 0 rgba(255,255,255,0.2);"/>
       </Choices>
     </View>
+
+    <!-- Speaker (only when Valid) -->
     <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid" perRegion="true">
       <View style="font-size:12px; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+        Speaker
       </View>
-      <Choices name="speaker" toName="audio" choice="single" showInline="true" perRegion="true">
-        <Choice value="Speaker A" style="display:inline-block; background:#EFF6FF; color:#2563EB; border:2.5px solid #2563EB; padding:10px 24px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:700; font-size:14px; cursor:pointer;"/>
-        <Choice value="Speaker B" style="display:inline-block; background:#F5F3FF; color:#7C3AED; border:2.5px solid #7C3AED; padding:10px 24px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:700; font-size:14px; cursor:pointer;"/>
-        <Choice value="Speaker C" style="display:inline-block; background:#F0FDF9; color:#059669; border:2.5px solid #059669; padding:10px 24px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:700; font-size:14px; cursor:pointer;"/>
+      <View style="font-size:12px; color:#9CA3AF; margin-bottom:14px;">
+        Who is speaking in this segment?
+      </View>
+      <Choices name="speaker" toName="audio" choice="single" required="true" requiredMessage="Please select a Speaker for this Valid segment." showInline="true" perRegion="true" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid">
+        <Choice value="Speaker A" style="display:inline-block; background:linear-gradient(135deg,#3B82F6 0%,#1E40AF 100%); color:#FFFFFF; border:2px solid #1E3A8A; padding:10px 26px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:14px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 4px 10px rgba(30,64,175,0.35), inset 0 1px 0 rgba(255,255,255,0.2);"/>
+        <Choice value="Speaker B" style="display:inline-block; background:linear-gradient(135deg,#A855F7 0%,#6D28D9 100%); color:#FFFFFF; border:2px solid #4C1D95; padding:10px 26px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:14px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 4px 10px rgba(109,40,217,0.35), inset 0 1px 0 rgba(255,255,255,0.2);"/>
+        <Choice value="Speaker C" style="display:inline-block; background:linear-gradient(135deg,#06B6D4 0%,#0E7490 100%); color:#FFFFFF; border:2px solid #155E75; padding:10px 26px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:14px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 4px 10px rgba(14,116,144,0.35), inset 0 1px 0 rgba(255,255,255,0.2);"/>
       </Choices>
     </View>
+
+    <!-- Transcription (only when Valid) -->
     <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid" perRegion="true">
       <View style="font-size:12px; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+        Transcription
       </View>
-      <TextArea name="transcription" toName="audio" placeholder="Type transcription here..." rows="4" editable="true" showSubmitButton="false" perRegion="true" maxSubmissions="1"/>
+      <View style="font-size:12px; color:#9CA3AF; margin-bottom:10px;">
+        Type the exact words spoken in this segment.
+      </View>
+      <TextArea name="transcription" toName="audio" placeholder="Type transcription here..." rows="4" editable="true" required="true" requiredMessage="Please write the transcription for this Valid segment." showSubmitButton="false" perRegion="true" maxSubmissions="1" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid"/>
     </View>
+
+    <!-- Invalid reason (only when Invalid) -->
     <View style="background:#FFFFFF; border:1px solid #FECACA; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Invalid" perRegion="true">
       <View style="font-size:12px; font-weight:700; color:#7F1D1D; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+        Invalid reason
       </View>
-      <Choices name="invalid_reason" toName="audio" choice="single" showInline="true" perRegion="true">
-        <Choice value="Noise" style="display:inline-block; background:#FFF3E0; color:#E65100; border:1.5px solid #FF9800; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Overlap" style="display:inline-block; background:#FFFDE7; color:#F57F17; border:1.5px solid #FDD835; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Silence" style="display:inline-block; background:#E3F2FD; color:#1565C0; border:1.5px solid #42A5F5; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Inaudible" style="display:inline-block; background:#F3E5F5; color:#6A1B9A; border:1.5px solid #AB47BC; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Other" style="display:inline-block; background:#FEF3C7; color:#92400E; border:1.5px solid #F59E0B; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
+      <View style="font-size:12px; color:#9B1C1C; margin-bottom:14px;">
+        Why is this segment invalid?
+      </View>
+      <Choices name="invalid_reason" toName="audio" choice="single" required="true" requiredMessage="Please select a reason for marking this segment Invalid." showInline="true" perRegion="true" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Invalid">
+        <Choice value="Noise" style="display:inline-block; background:linear-gradient(135deg,#F97316 0%,#C2410C 100%); color:#FFFFFF; border:2px solid #7C2D12; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(194,65,12,0.4), inset 0 1px 0 rgba(255,255,255,0.18);"/>
+        <Choice value="Overlap" style="display:inline-block; background:linear-gradient(135deg,#FBBF24 0%,#B45309 100%); color:#FFFFFF; border:2px solid #78350F; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(180,83,9,0.4), inset 0 1px 0 rgba(255,255,255,0.18);"/>
+        <Choice value="Silence" style="display:inline-block; background:linear-gradient(135deg,#475569 0%,#1E293B 100%); color:#FFFFFF; border:2px solid #0F172A; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(30,41,59,0.45), inset 0 1px 0 rgba(255,255,255,0.18);"/>
+        <Choice value="Inaudible" style="display:inline-block; background:linear-gradient(135deg,#D946EF 0%,#86198F 100%); color:#FFFFFF; border:2px solid #581C87; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(134,25,143,0.4), inset 0 1px 0 rgba(255,255,255,0.18);"/>
+        <Choice value="Breathing" style="display:inline-block; background:linear-gradient(135deg,#FDBA74 0%,#EA580C 100%); color:#7C2D12; border:2px solid #9A3412; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(234,88,12,0.4), inset 0 1px 0 rgba(255,255,255,0.3);"/>
+        <Choice value="Laugh" style="display:inline-block; background:linear-gradient(135deg,#FACC15 0%,#CA8A04 100%); color:#451A03; border:2px solid #713F12; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:800; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(202,138,4,0.45), inset 0 1px 0 rgba(255,255,255,0.3);"/>
+        <Choice value="Non Target Language" style="display:inline-block; background:linear-gradient(135deg,#14B8A6 0%,#0F766E 100%); color:#FFFFFF; border:2px solid #115E59; padding:10px 20px; border-radius:10px; margin:6px; min-width:170px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(15,118,110,0.4), inset 0 1px 0 rgba(255,255,255,0.18);"/>
+        <Choice value="Cough" style="display:inline-block; background:linear-gradient(135deg,#84CC16 0%,#4D7C0F 100%); color:#FFFFFF; border:2px solid #365314; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(77,124,15,0.4), inset 0 1px 0 rgba(255,255,255,0.18);"/>
+        <Choice value="Other" style="display:inline-block; background:linear-gradient(135deg,#F472B6 0%,#BE185D 100%); color:#FFFFFF; border:2px solid #831843; padding:10px 20px; border-radius:10px; margin:6px; min-width:135px; text-align:center; font-weight:700; font-size:13px; letter-spacing:0.3px; cursor:pointer; box-shadow:0 3px 8px rgba(190,24,93,0.4), inset 0 1px 0 rgba(255,255,255,0.18);"/>
       </Choices>
     </View>
+
+    <!-- Other-reason free text (only when Other) -->
     <View style="background:#FFFBEB; border:1.5px solid #F59E0B; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="invalid_reason" whenChoiceValue="Other" perRegion="true">
       <View style="font-size:12px; font-weight:700; color:#92400E; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+        Other reason
       </View>
-      <TextArea name="other_reason" toName="audio" placeholder="Write your reason here..." rows="4" editable="true" showSubmitButton="false" perRegion="true" maxSubmissions="1"/>
+      <TextArea name="other_reason" toName="audio" placeholder="Write your reason here..." rows="3" editable="true" required="true" requiredMessage="Describe the 'Other' invalid reason." showSubmitButton="false" perRegion="true" maxSubmissions="1" visibleWhen="choice-selected" whenTagName="invalid_reason" whenChoiceValue="Other"/>
     </View>
   </View>

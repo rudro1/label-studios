@@ -3,6 +3,7 @@
 from django.urls import include, path
 
 from . import api
+from .single_task_export import BulkTaskExportAPI, SingleTaskExportAPI
 
 app_name = 'data_export'
 
@@ -19,6 +20,10 @@ _api_urlpatterns = [
         '<int:pk>/exports/<int:export_pk>/download', api.ExportDownloadAPI.as_view(), name='project-exports-download'
     ),
     path('<int:pk>/exports/<int:export_pk>/convert', api.ExportConvertAPI.as_view(), name='project-exports-convert'),
+    # Single task export — returns one JSON doc named after the original file.
+    path('<int:pk>/tasks/<int:task_id>/export/', SingleTaskExportAPI.as_view(), name='project-task-export'),
+    # Checkbox-driven bulk export by task ids — returns one or many JSON tasks.
+    path('<int:pk>/export/tasks/', BulkTaskExportAPI.as_view(), name='project-export-tasks-by-ids'),
 ]
 
 urlpatterns = [

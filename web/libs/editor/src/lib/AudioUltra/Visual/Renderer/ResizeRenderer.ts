@@ -50,8 +50,8 @@ export class ResizeRenderer implements Renderer<ResizeRendererConfig>, Interacti
       opacity: 0.2, // Lower default opacity
       hoverOpacity: 0.6, // Higher opacity on hover
       handleColor: "#666",
-      handleOpacity: 0.4, // Lower default handle opacity
-      handleHoverOpacity: 0.9, // Higher handle opacity on hover
+      handleOpacity: 0.6, // Increased from 0.4 for better visibility
+      handleHoverOpacity: 1.0, // Increased from 0.9
       ...config,
     };
   }
@@ -139,16 +139,16 @@ export class ResizeRenderer implements Renderer<ResizeRendererConfig>, Interacti
 
     // Always show resize handle, but with different opacity based on hover state
     // Resize handle dimensions
-    const handleWidth = 60; // Reduced from 80
-    const handleHeight = 6; // Reduced from 8
-    const borderRadius = 3; // Reduced from 4 to match smaller size
+    const handleWidth = 96; // Increased from 76
+    const handleHeight = 10; // Increased from 8
+    const borderRadius = 5; // Increased from 4
     const handleX = (width - handleWidth) / 2; // Center the handle
-    const handleY = height - handleHeight - 8; // 8px from bottom
+    const handleY = height - handleHeight - 8; // keep the grip visually separated from the edge
 
     // Draw resize handle background with rounded corners
-    ctx.fillStyle = this.config.handleColor ?? "#666";
+    ctx.fillStyle = this.config.handleColor ?? "#64748b";
     const currentHandleOpacity = this.isHovered ? this.config.handleHoverOpacity : this.config.handleOpacity;
-    ctx.globalAlpha = currentHandleOpacity ?? 0.4;
+    ctx.globalAlpha = currentHandleOpacity ?? 0.6;
 
     // Apply shadow for better visibility (scale shadow by pixel ratio)
     ctx.shadowColor = this.config.shadowColor ?? "rgba(0, 0, 0, 0.3)";
@@ -159,7 +159,7 @@ export class ResizeRenderer implements Renderer<ResizeRendererConfig>, Interacti
     this.drawRoundedRect(ctx, handleX * pr, handleY * pr, handleWidth * pr, handleHeight * pr, borderRadius * pr);
 
     // Add a subtle border for better definition - always visible
-    ctx.strokeStyle = this.isHovered ? "#ffffff" : "#cccccc";
+    ctx.strokeStyle = this.isHovered ? "rgba(255, 255, 255, 0.96)" : "rgba(226, 232, 240, 0.9)";
     ctx.lineWidth = 1 * pr;
     ctx.globalAlpha = 0.8;
 
@@ -201,14 +201,14 @@ export class ResizeRenderer implements Renderer<ResizeRendererConfig>, Interacti
 
     // Only hit test the resize handle area for precise interaction
     // Resize handle dimensions (in CSS pixels)
-    const handleWidth = 60; // Reduced from 80
-    const handleHeight = 6; // Reduced from 8
+    const handleWidth = 96; // Matches draw method
+    const handleHeight = 10; // Matches draw method
     const handleX = (width - handleWidth) / 2; // Center the handle
-    const handleY = height - handleHeight - 8; // 8px from bottom
+    const handleY = height - handleHeight - 8; // 8px from bottom (Matches draw method)
 
     // Expand hit area for easier mouse targeting
     // Use larger padding when dragging to prevent accidental release
-    const hitPadding = this.isDragging ? 8 : 4;
+    const hitPadding = this.isDragging ? 15 : 10; // Increased padding
     const hitX = handleX - hitPadding;
     const hitY = handleY - hitPadding;
     const hitWidth = handleWidth + hitPadding * 2;

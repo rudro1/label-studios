@@ -3,6 +3,8 @@
 from django.urls import include, path
 
 from . import api
+from .link_import import DriveFolderImportAPI, ManifestImportAPI, UrlListImportAPI
+from .zip_import import CloudinaryZipImportAPI, ZipImportAPI
 
 app_name = 'data_import'
 
@@ -13,6 +15,11 @@ _api_projects_urlpatterns = [
     path('<int:pk>/tasks/bulk/', api.TasksBulkCreateAPI.as_view(), name='project-tasks-bulk-upload'),
     path('<int:pk>/import', api.ImportAPI.as_view(), name='project-import'),
     path('<int:pk>/import/predictions', api.ImportPredictionsAPI.as_view(), name='project-import-predictions'),
+    path('<int:pk>/import/zip/', ZipImportAPI.as_view(), name='project-import-zip'),
+    path('<int:pk>/import/cloudinary-zip/', CloudinaryZipImportAPI.as_view(), name='project-import-cloudinary-zip'),
+    path('<int:pk>/import/urls/', UrlListImportAPI.as_view(), name='project-import-urls'),
+    path('<int:pk>/import/manifest/', ManifestImportAPI.as_view(), name='project-import-manifest'),
+    path('<int:pk>/import/drive-folder/', DriveFolderImportAPI.as_view(), name='project-import-drive-folder'),
     path('<int:pk>/reimport', api.ReImportAPI.as_view(), name='project-reimport'),
     path('<int:pk>/file-uploads', api.FileUploadListAPI.as_view(), name='project-file-upload-list'),
 ]

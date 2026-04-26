@@ -5,6 +5,7 @@ import io
 import logging
 import mimetypes
 import os
+import re
 
 try:
     import ujson as json
@@ -122,47 +123,210 @@ def str_to_json(data):
         return None
 
 
-def tasks_from_url(file_upload_ids, project, user, url, could_be_tasks_list):
-    """Download file using URL and read tasks from it"""
-    # process URL with tasks
+def convert_google_drive_link(url):
+    """Convert Google Drive view link to download link for direct file access"""
+    if not url or not isinstance(url, str):
+        return url
+    if 'drive.google.com' in url and '/view' in url:
+        match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
+        if match:
+            file_id = match.group(1)
+            return f'https://drive.google.com/uc?export=download&id={file_id}'
+    return url
+
+
+def is_external_url(url):
+    """Check if the URL is an external cloud source"""
+    if not url or not isinstance(url, str):
+        return False
+    external_domains = [
+        'drive.google.com',
+        'cloudinary.com',
+        'res.cloudinary.com',
+        'dropbox.com',
+        's3.amazonaws.com',
+        'storage.googleapis.com',
+        'blob.core.windows.net',
+        'githubusercontent.com',
+        'github.com',
+        'gitlab.com',
+        'bitbucket.org'
+    ]
+    return any(domain in url for domain in external_domains)
+
+
+def get_filename_from_url(url):
+    """Try to get the real human-readable filename from a URL by checking headers."""
+    response = None
     try:
+        import requests
+        import re
+        import urllib.parse
+        
+        # Don't download the whole file, just headers and enough to get disposition
+        response = requests.get(url, stream=True, allow_redirects=True, timeout=10)
+        
+        # 1. Try Content-Disposition header (The most reliable for GDrive/Cloudinary)
+        cd = response.headers.get('Content-Disposition')
+        if cd:
+            # Try to match filename="..."
+            fname = re.findall('filename="(.+)"', cd)
+            if fname: return fname[0]
+            # Try to match filename*=UTF-8''...
+            fname = re.findall(r"filename\*=UTF-8''(.+)", cd)
+            if fname: 
+                return urllib.parse.unquote(fname[0])
+
+        # 2. Try the final URL's path if headers didn't work
+        final_url = response.url
+        path = urllib.parse.urlparse(final_url).path
+        fname = os.path.basename(path)
+        if fname and '.' in fname:
+            return fname
+
+        # 3. Fallback: If it's still a GDrive link, we might not get a name easily
+        # but let's at least return something unique from the URL
+        if 'drive.google.com' in url:
+            id_match = re.search(r'(?:id=|[/\b])([a-zA-Z0-9_-]{25,})', url)
+            if id_match: return f"gdrive_{id_match.group(1)}"
+    except Exception as e:
+        logger.warning(f"Could not get filename from URL {url}: {e}")
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+    return os.path.basename(url.split('?')[0]) or 'unknown'
+
+
+_MEDIA_URL_EXTS = (
+    '.wav', '.mp3', '.flac', '.ogg', '.m4a', '.webm',
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp',
+    '.mp4', '.mov',
+)
+
+
+def _link_only_task(url: str) -> dict:
+    """Build a Task payload that stores the remote URL without downloading.
+    Fixensy link-only mode — zero VPS disk use for media files.
+    """
+    from urllib.parse import unquote, urlparse
+
+    from core.utils.filename import clean_filename
+
+    path = urlparse(url).path
+    filename = unquote(os.path.basename(path)) or 'file'
+    ext = os.path.splitext(filename)[1].lower()
+    key = 'audio' if ext in ('.wav', '.mp3', '.flac', '.ogg', '.m4a', '.webm') else (
+          'image' if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp') else (
+          'video' if ext in ('.mp4', '.mov') else settings.DATA_UNDEFINED_NAME))
+    clean = clean_filename(url) or os.path.splitext(filename)[0]
+    return {
+        'data': {
+            key: url,
+            'filename': filename,
+            'clean_name': clean,
+            'source_url': url,
+        },
+        'source_file_name': filename,
+        'meta': {'source_file_name': filename, 'clean_name': clean},
+    }
+
+
+def tasks_from_url(file_upload_ids, project, user, url, could_be_tasks_list):
+    """Download file using URL and read tasks from it.
+
+    Fixensy short-circuit: if the URL points at a media file (audio/image/video),
+    we store ONLY the link — no bytes copied to VPS disk. Task data points at
+    the remote URL directly and the browser streams it on demand.
+    """
+    original_url = url
+    try:
+        # Convert Google Drive link to direct download link if necessary
+        url = convert_google_drive_link(url)
         filename = url.rsplit('/', 1)[-1]
+
+        # Fixensy link-only short-circuit for media.
+        lower_filename = filename.lower().split('?', 1)[0]
+        if (
+            os.environ.get('FIXENSY_LINK_ONLY', '1') != '0'
+            and url.startswith(('http://', 'https://'))
+            and os.path.splitext(lower_filename)[1] in _MEDIA_URL_EXTS
+        ):
+            link_task = _link_only_task(url)
+            tasks = [link_task]
+
+            # Persist a tiny JSON stub FileUpload so the UI "Import" button
+            # (reimportFiles + file_upload_ids) has something to commit. The stub
+            # holds ONLY the task metadata (<1KB) — no audio bytes hit disk.
+            import json as _json
+            from django.core.files.base import ContentFile
+            stub_name = f'{os.path.splitext(filename)[0] or "link"}.json'
+            stub_body = _json.dumps([{'data': link_task['data']}]).encode('utf-8')
+            stub_upload = create_file_upload(user, project, ContentFile(stub_body, name=stub_name))
+            file_upload_ids.append(stub_upload.id)
+            if stub_upload.format_could_be_tasks_list:
+                could_be_tasks_list = True
+
+            return (
+                [settings.DATA_UNDEFINED_NAME], {'url'}, tasks, file_upload_ids, could_be_tasks_list,
+            )
 
         response = ssrf_safe_get(
             url, verify=project.organization.should_verify_ssl_certs(), stream=True, headers={'Accept-Encoding': None}
         )
 
-        # Try to get filename from resolved URL after redirects
-        resolved_url = response.url if hasattr(response, 'url') else url
-        if resolved_url != url:
-            # Parse filename from the resolved URL after redirect
-            from urllib.parse import unquote, urlparse
+        try:
+            resolved_url = response.url if hasattr(response, 'url') else url
+            if resolved_url != url:
+                from urllib.parse import unquote, urlparse
+                parsed_url = urlparse(resolved_url)
+                path = unquote(parsed_url.path)
+                resolved_filename = path.rsplit('/', 1)[-1]
+                if '?' in resolved_filename:
+                    resolved_filename = resolved_filename.split('?')[0]
+                _, resolved_ext = os.path.splitext(resolved_filename)
+                filename = resolved_filename
 
-            parsed_url = urlparse(resolved_url)
-            path = unquote(parsed_url.path)
-            resolved_filename = path.rsplit('/', 1)[-1]
-            # Remove query parameters
-            if '?' in resolved_filename:
-                resolved_filename = resolved_filename.split('?')[0]
-            _, resolved_ext = os.path.splitext(resolved_filename)
-            filename = resolved_filename
+            _, ext = os.path.splitext(filename)
+            if ext and ext.lower() not in settings.SUPPORTED_EXTENSIONS:
+                raise ValidationError(f'{ext} extension is not supported')
 
-        # Check file extension
-        _, ext = os.path.splitext(filename)
-        if ext and ext.lower() not in settings.SUPPORTED_EXTENSIONS:
-            raise ValidationError(f'{ext} extension is not supported')
+            content_length = response.headers.get('content-length')
+            if content_length:
+                check_tasks_max_file_size(int(content_length))
 
-        # Check file size before downloading
-        content_length = response.headers.get('content-length')
-        if content_length:
-            check_tasks_max_file_size(int(content_length))
+            file_content = response.content
+            file_upload = create_file_upload(user, project, SimpleUploadedFile(filename, file_content))
+            if file_upload.format_could_be_tasks_list:
+                could_be_tasks_list = True
+            file_upload_ids.append(file_upload.id)
+            tasks, found_formats, data_keys = FileUpload.load_tasks_from_uploaded_files(project, file_upload_ids)
 
-        file_content = response.content
-        file_upload = create_file_upload(user, project, SimpleUploadedFile(filename, file_content))
-        if file_upload.format_could_be_tasks_list:
-            could_be_tasks_list = True
-        file_upload_ids.append(file_upload.id)
-        tasks, found_formats, data_keys = FileUpload.load_tasks_from_uploaded_files(project, file_upload_ids)
+            is_external = is_external_url(original_url)
+
+            if is_external or (original_url.startswith('http') and not could_be_tasks_list):
+                final_url = convert_google_drive_link(original_url)
+                # Try to get the real human-readable filename from Drive headers
+                real_filename = get_filename_from_url(final_url)
+
+                for task in tasks:
+                    # CRITICAL: Always use the Cloud URL directly in the data
+                    # This prevents local /data/upload/ paths from being created
+                    task['data'] = {settings.DATA_UNDEFINED_NAME: final_url}
+
+                    # IMPORTANT: Save original human-readable filename for export naming
+                    task['source_file_name'] = real_filename
+                    if not task.get('meta'):
+                        task['meta'] = {}
+                    task['meta']['source_file_name'] = real_filename
+        finally:
+            try:
+                response.close()
+            except Exception:
+                pass
 
     except ValidationError as e:
         raise e
@@ -175,6 +339,11 @@ def tasks_from_url(file_upload_ids, project, user, url, could_be_tasks_list):
 def create_file_uploads(user, project, FILES):
     could_be_tasks_list = False
     file_upload_ids = []
+    if FILES and getattr(settings, 'FIXSTUDIO_REFERENCE_ONLY', False):
+        raise ValidationError(
+            'Raw file uploads are disabled on this server. Import via URL or '
+            'cloud-storage reference instead (set FIXSTUDIO_REFERENCE_ONLY=False to allow uploads).'
+        )
     check_request_files_size(FILES)
     check_extensions(FILES)
     for _, file in FILES.items():
