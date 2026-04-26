@@ -27,6 +27,72 @@ const useSpectrogramControls = isAudioSpectrograms ? useSpectrogramControlsHook 
 
 const isSyncedBuffering = ff.isActive(ff.FF_SYNCED_BUFFERING);
 
+// Fixensy Whisper bot — fire-and-forget transcribe, then push text into a TextArea
+// control on the same task. Skipped silently when backend has no OPENAI_API_KEY.
+const FIXENSY_TRANSCRIBE_INFLIGHT = new WeakSet<object>();
+
+function autoTranscribeSegment(item: any, region: any) {
+  if (!region || FIXENSY_TRANSCRIBE_INFLIGHT.has(region)) return;
+  const audioUrl = item?._value;
+  if (!audioUrl) return;
+  const start = typeof region.start === "number" ? region.start : Number(region.start ?? 0);
+  const end = typeof region.end === "number" ? region.end : Number(region.end ?? 0);
+  if (!isFinite(start) || !isFinite(end) || end <= start) return;
+
+  FIXENSY_TRANSCRIBE_INFLIGHT.add(region);
+
+  const csrfToken = (() => {
+    try {
+      const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : "";
+    } catch (_) {
+      return "";
+    }
+  })();
+
+  fetch("/api/tasks/transcribe-segment/", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrfToken ? { "X-CSRFToken": csrfToken } : {}),
+    },
+    body: JSON.stringify({ audio_url: audioUrl, start, end }),
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (!data || !data.text) return;
+      pushTranscriptionIntoTextArea(item, region, data.text);
+    })
+    .catch(() => {});
+}
+
+function pushTranscriptionIntoTextArea(item: any, region: any, text: string) {
+  try {
+    const annotation = item?.annotation;
+    if (!annotation) return;
+    // Find a TextArea control attached to this region or to the same target
+    const names = annotation?.names;
+    if (!names) return;
+    let textareaTag: any = null;
+    names.forEach?.((tag: any) => {
+      if (textareaTag) return;
+      const t = (tag?.type || "").toLowerCase();
+      if (t === "textarea") {
+        const sameTarget = !tag.toname || tag.toname === item?.name;
+        const matchesRegion = !tag.perregion || (region?.selected || region?.isRegion);
+        if (sameTarget && matchesRegion) textareaTag = tag;
+      }
+    });
+    if (!textareaTag) return;
+    if (typeof textareaTag.addText === "function") {
+      textareaTag.addText(text);
+    } else if (typeof textareaTag.setValue === "function") {
+      textareaTag.setValue(text);
+    }
+  } catch (_) {}
+}
+
 interface AudioProps {
   item: any;
   settings?: TimelineSettings;
@@ -37,8 +103,17 @@ interface AudioProps {
 const AudioView: FC<AudioProps> = observer(
   ({ item, children, settings = {}, changeSetting = () => {} }: AudioUltraProps) => {
     const rootRef = useRef<HTMLElement | null>();
+    const hostRef = useRef<HTMLDivElement | null>(null);
+    const audioTagRef = useRef<HTMLDivElement | null>(null);
     const isDarkMode = getCurrentTheme() === "Dark";
     const [hasRegions, setHasRegions] = useState(false);
+    const [stickyMeta, setStickyMeta] = useState({
+      pinned: false,
+      top: 48,
+      left: 0,
+      width: 0,
+      height: 0,
+    });
 
     // body তে sync করো যাতে Template CSS কাজ করে
     useEffect(() => {
@@ -137,6 +212,10 @@ const AudioView: FC<AudioProps> = observer(
             item.annotation.selectArea(r);
           } catch(_) {}
         }
+        // Fixensy Whisper bot: auto-transcribe new segment if backend is configured
+        try {
+          autoTranscribeSegment(item, r ?? region);
+        } catch (_) {}
       };
 
       const selectRegion = (region: Region | Segment, event: MouseEvent) => {
@@ -145,31 +224,23 @@ const AudioView: FC<AudioProps> = observer(
           return;
         }
         const annotation = item.annotation;
-
         const growSelection = event.metaKey || event.ctrlKey;
 
-        // FIX: unselectAll এর আগে active label save করো
-        const activeState = item.activeState;
-        const selectedValues = activeState?.selectedValues?.() ?? [];
+        // Fixensy: authoritative area resolution — match annotation.areas by ws region id first,
+        // then fall back to the regs list / ws region reference lookup.
+        let itemRegion =
+          annotation?.areas?.get?.(region.id) ??
+          annotation?.areas?.get?.(String(region.id)) ??
+          item.findRegionByWsRegion?.(region) ??
+          item.regs.find((obj: any) => String(obj._ws_region?.id ?? obj.id) === String(region.id));
 
-        if (!growSelection || (!region.selected && !region.isRegion)) {
-          item.annotation.regionStore.unselectAll();
-          // FIX: label reselect করো যাতে পরের drag কাজ করে
-          if (activeState && selectedValues.length > 0) {
-            try {
-              activeState.tiedChildren?.forEach((child: any) => {
-                if (selectedValues.includes(child.value)) {
-                  child.setSelected(true);
-                }
-              });
-            } catch (_) {}
-          }
+        if (itemRegion && typeof itemRegion.setWSRegion === "function") {
+          try { itemRegion.setWSRegion(region); } catch (_) {}
         }
 
-        // to select or unselect region
-        const itemRegion = item.regs.find((obj: any) => obj.id === region.id);
-        // to select or unselect unlabeled segments
-        const targetInWave = item._ws.regions.findRegion(region.id);
+        if (!itemRegion) {
+          itemRegion = region.isRegion ? item.updateRegion?.(region) : item.addRegion?.(region);
+        }
 
         if (annotation.isLinkingMode && itemRegion) {
           annotation.addLinkedRegion(itemRegion);
@@ -179,23 +250,61 @@ const AudioView: FC<AudioProps> = observer(
           return;
         }
 
-        // Fixensy: toggle না করে সবসময় select করো
+        // Clear prior selection then select this exact region so per-region panel re-binds.
         if (itemRegion) {
-          item.annotation.regionStore.unselectAll();
-          item.annotation.selectArea(itemRegion);
+          if (!growSelection) {
+            try { annotation.regionStore.clearSelection?.(); } catch (_) {}
+            try { annotation.unselectAreas?.(); } catch (_) {}
+          }
+          // selectArea bails early if already highlighted; force highlight to re-run perRegion updates.
+          try { annotation.regionStore.highlight?.(itemRegion); } catch (_) {
+            try { annotation.selectArea(itemRegion); } catch (__) {}
+          }
         }
 
-        if (targetInWave) {
-          targetInWave.handleSelected(region.selected);
-        }
-
-        // deselect all other segments if not changing multi-selection
+        // WS-side selection indicators
+        const targetInWave = item._ws.regions.findRegion(region.id);
+        if (targetInWave) targetInWave.handleSelected(true);
         if (!growSelection) {
           item._ws.regions.regions.forEach((obj: any) => {
-            if (obj.id !== region.id) {
-              obj.handleSelected(false);
-            }
+            if (obj.id !== region.id) obj.handleSelected?.(false);
           });
+        }
+
+        if (itemRegion) {
+          try { annotation.selectArea(itemRegion); } catch (_) {}
+        }
+
+        // Fixensy: on segment click, always loop-play only this segment.
+        const wf = waveform.current as any;
+        if (!region.isRegion && wf?.player) {
+          // Start from clicked point inside segment; fallback to segment start.
+          let seekTo = region.start;
+
+          try {
+            const visualizer = wf.visualizer;
+            const container = visualizer?.container;
+            const duration = Number(wf.duration ?? 0);
+
+            if (container && duration > 0) {
+              const rect = container.getBoundingClientRect();
+              const x = Math.max(0, Math.min(event.clientX - rect.left, container.clientWidth));
+              const scrollLeft = typeof visualizer.getScrollLeft === "function" ? visualizer.getScrollLeft() : 0;
+              const zoom = Number(wf.zoom ?? 1);
+
+              const currentPosition = scrollLeft + x / container.clientWidth / zoom;
+              const clickedTime = currentPosition * duration;
+
+              seekTo = Math.min(region.end, Math.max(region.start, clickedTime));
+            }
+          } catch (_) {}
+
+          setTimeout(() => {
+            if (wf.player.playing) wf.player.pause();
+            wf.player.loop = { start: region.start, end: region.end };
+            wf.player.seek(seekTo);
+            wf.player.play();
+          }, 0);
         }
       };
 
@@ -238,16 +347,137 @@ const AudioView: FC<AudioProps> = observer(
       };
     }, []);
 
+    useEffect(() => {
+      const host = hostRef.current;
+      const tag = audioTagRef.current;
+
+      if (!host || !tag) return;
+
+      let raf = 0;
+      const listeners: Array<{ el: EventTarget; fn: EventListener }> = [];
+
+      const getScrollParents = (element: HTMLElement) => {
+        const parents: EventTarget[] = [];
+        let current: HTMLElement | null = element.parentElement;
+
+        while (current) {
+          const style = window.getComputedStyle(current);
+          const overflowY = style.overflowY;
+          const overflowX = style.overflowX;
+          const canScrollY = /(auto|scroll|overlay)/.test(overflowY);
+          const canScrollX = /(auto|scroll|overlay)/.test(overflowX);
+
+          if (canScrollY || canScrollX) {
+            parents.push(current);
+          }
+
+          current = current.parentElement;
+        }
+
+        parents.push(window);
+        return parents;
+      };
+
+      const getStickyOffset = () => {
+        const cssValue = getComputedStyle(document.documentElement).getPropertyValue("--sticky-items-offset").trim();
+        const parsed = Number.parseFloat(cssValue || "");
+
+        return Number.isFinite(parsed) ? parsed : 48;
+      };
+
+      const updateSticky = () => {
+        const hostRect = host.getBoundingClientRect();
+        const tagRect = tag.getBoundingClientRect();
+        const stickyTop = getStickyOffset();
+        const canPin = hostRect.top <= stickyTop && hostRect.bottom > stickyTop + tagRect.height;
+
+        setStickyMeta((prev) => {
+          const next = {
+            pinned: canPin,
+            top: stickyTop,
+            left: hostRect.left,
+            width: hostRect.width,
+            height: tagRect.height,
+          };
+
+          if (
+            prev.pinned === next.pinned &&
+            prev.top === next.top &&
+            prev.left === next.left &&
+            prev.width === next.width &&
+            prev.height === next.height
+          ) {
+            return prev;
+          }
+
+          return next;
+        });
+      };
+
+      const scheduleUpdate = () => {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(updateSticky);
+      };
+
+      updateSticky();
+
+      const scrollParents = getScrollParents(host);
+
+      scrollParents.forEach((el) => {
+        const fn = scheduleUpdate as EventListener;
+
+        el.addEventListener("scroll", fn, { passive: true });
+        listeners.push({ el, fn });
+      });
+
+      const resizeFn = scheduleUpdate as EventListener;
+
+      window.addEventListener("resize", resizeFn);
+      listeners.push({ el: window, fn: resizeFn });
+
+      const resizeObserver = new ResizeObserver(scheduleUpdate);
+
+      resizeObserver.observe(host);
+      resizeObserver.observe(tag);
+
+      return () => {
+        cancelAnimationFrame(raf);
+        listeners.forEach(({ el, fn }) => {
+          el.removeEventListener("scroll", fn);
+          el.removeEventListener("resize", fn);
+        });
+        resizeObserver.disconnect();
+      };
+    }, []);
+
     return (
-      <div className={cn("audio-tag").toClassName()} data-has-regions={hasRegions ? "true" : "false"}>
-        {children}
+      <div
+        className={cn("audio-tag-host").mod({ pinned: stickyMeta.pinned }).toClassName()}
+        ref={hostRef}
+        style={stickyMeta.pinned ? { minHeight: `${Math.ceil(stickyMeta.height)}px` } : undefined}
+      >
         <div
-          ref={(el) => {
-            rootRef.current = el;
-            item.stageRef.current = el;
-          }}
-        />
-        <Controls
+          ref={audioTagRef}
+          className={cn("audio-tag").mod({ pinned: stickyMeta.pinned }).toClassName()}
+          data-has-regions={hasRegions ? "true" : "false"}
+          style={
+            stickyMeta.pinned
+              ? {
+                  top: `${stickyMeta.top}px`,
+                  left: `${stickyMeta.left}px`,
+                  width: `${stickyMeta.width}px`,
+                }
+              : undefined
+          }
+        >
+          {children}
+          <div
+            ref={(el) => {
+              rootRef.current = el;
+              item.stageRef.current = el;
+            }}
+          />
+          <Controls
           position={controls.currentTime}
           playing={isSyncedBuffering && item.isBuffering ? item.wasPlayingBeforeBuffering : controls.playing}
           buffering={item.isBuffering}
@@ -298,7 +528,8 @@ const AudioView: FC<AudioProps> = observer(
             }
           }}
           layerVisibility={controls.layerVisibility}
-        />
+          />
+        </div>
       </div>
     );
   },
@@ -311,9 +542,23 @@ const AudioWithSettings: FC<AudioProps> = ({ item }) => {
     playpauseHotkey: "audio:playpause",
     stepBackHotkey: "audio:step-backward",
     stepForwardHotkey: "audio:step-forward",
-    loopRegion: false,
+    // Fixensy default: keep replaying the selected segment for precise QA/listening
+    loopRegion: true,
     autoPlayNewSegments: true,
-  });
+    autoLoopSelectedSegment: true,
+    allowNestedSegments: true,
+    continuousPlay: false,
+  } as any);
+
+  useEffect(() => {
+    // Force-enable segment auto-loop for this workflow, even when older persisted settings exist.
+    setSettings((prev) => ({
+      ...prev,
+      loopRegion: true,
+      autoLoopSelectedSegment: true,
+    }));
+  }, [setSettings]);
+
   const changeSetting = useCallback((key: string, value: any) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   }, []);

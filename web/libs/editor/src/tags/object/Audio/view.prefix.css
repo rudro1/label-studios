@@ -1,3 +1,28 @@
+.audio-tag-host {
+  width: 100%;
+  position: relative;
+}
+
 .audio-tag {
   width: 100%;
+  position: sticky;
+  top: var(--sticky-items-offset, 48px);
+  z-index: 120;
+  background: var(--color-neutral-background, #f9fafb);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
+  isolation: isolate;
+}
+
+.audio-tag-host_pinned {
+  z-index: 120;
+}
+
+.audio-tag_pinned {
+  position: fixed;
+}
+
+[data-color-scheme="dark"] .audio-tag,
+.lsf-main-content--dark .audio-tag {
+  background: #0f172a;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
 }
