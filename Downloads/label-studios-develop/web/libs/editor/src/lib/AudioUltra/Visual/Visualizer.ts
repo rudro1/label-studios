@@ -1032,22 +1032,63 @@ export class Visualizer extends Events<VisualizerEvents> {
     if (!this.wf.loaded) return;
 
     if (this.isZooming(e)) {
-      // Store the current time position before zooming
-      const currentTimePosition = this.wf.currentTime;
+      e.preventDefault();
 
-      // Calculate zoom delta based on trackpad sensitivity
-      const zoomDelta = e.deltaY * 0.1;
-      const newZoom = this.zoom * (1 - zoomDelta);
+      // Normalize delta across input devices.
+      // - WheelEvent.deltaMode 0 (pixel) is typical for trackpads/pinch — small values (~1–20)
+      // - deltaMode 1 (line) typical for classic mouse wheels — values ~1–5 (lines)
+      // - deltaMode 2 (page) — rare, treat as line*40
+      // Convert everything to a unit-less "lines" delta for consistent feel.
+      let deltaLines = e.deltaY;
+      if (e.deltaMode === 0) deltaLines = e.deltaY / 40; // pixels → lines
+      else if (e.deltaMode === 2) deltaLines = e.deltaY * 10;
 
-      // Set the new zoom level
+      // Pinch gestures fire ctrlKey via the browser; differentiate sensitivity
+      // so trackpad pinch and mouse wheel feel similar.
+      const isPinch = !!e.ctrlKey && !e.metaKey && e.deltaMode === 0;
+      const sensitivity = isPinch ? 0.18 : 0.12;
+
+      // Exponential zoom — symmetric, never flips sign, always smooth.
+      // Clamp deltaLines to avoid huge jumps from accelerated wheels.
+      const clamped = Math.max(-12, Math.min(12, deltaLines));
+      const factor = Math.exp(-clamped * sensitivity);
+      const targetZoom = this.zoom * factor;
+
+      // Cursor-anchored zoom: keep audio time under mouse pointer fixed.
+      const rect = (this.container as HTMLElement).getBoundingClientRect?.();
+      const mouseX = rect ? e.clientX - rect.left : 0;
+      const widthPx = (this.container as HTMLElement).clientWidth || 1;
+      const ratio = Math.max(0, Math.min(1, mouseX / widthPx));
+      const timeRatioAtCursor = this.scrollLeft + ratio / this.zoom;
+
       requestAnimationFrame(() => {
-        this.setZoom(newZoom);
-        this.updateCursorToTime(currentTimePosition);
-        // If the audio is not playing, we need to transfer the image to ensure the cursor is updated accurately
+        const before = this.zoom;
+        this.setZoom(targetZoom);
+        if (this.zoom !== before && this.zoom > 1) {
+          // Anchor: solve newScrollLeft so timeRatioAtCursor sits at mouseX
+          let newScrollLeft = timeRatioAtCursor - ratio / this.zoom;
+          newScrollLeft = Math.max(0, Math.min(1 - 1 / this.zoom, newScrollLeft));
+          this.wf.invoke("scroll", [newScrollLeft]);
+          this.setScrollLeft(newScrollLeft);
+        }
         if (!this.wf.playing) {
           this.transferImage();
         }
       });
+    } else if (e.shiftKey && this.zoom > 1) {
+      // Shift+wheel: horizontal scroll (existing behavior, preserved)
+      const maxScroll = this.scrollWidth;
+      const maxRelativeScroll = (maxScroll / this.fullWidth) * this.zoom;
+      const delta = (Math.abs(e.deltaX) === 0 ? e.deltaY : e.deltaX) * this.zoom * 1.25;
+      const position = this.scrollLeft * this.zoom;
+      const currentSroll = maxScroll * position;
+      const newPosition = Math.max(0, currentSroll + delta);
+      const newRelativePosition = clamp(newPosition / maxScroll, 0, maxRelativeScroll);
+      const scrollLeft = newRelativePosition / this.zoom;
+      if (scrollLeft !== this.scrollLeft) {
+        this.wf.invoke("scroll", [scrollLeft]);
+        this.setScrollLeft(scrollLeft);
+      }
     } else if (this.zoom > 1) {
       // Base values
       const maxScroll = this.scrollWidth;
@@ -1091,7 +1132,16 @@ export class Visualizer extends Events<VisualizerEvents> {
   }
 
   private isZooming(e: WheelEvent) {
-    return e.ctrlKey || e.metaKey;
+    // Zoom triggers (cross-device):
+    //  - ctrlKey: trackpad pinch (browsers synthesize ctrlKey for pinch)
+    //  - metaKey: explicit modifier
+    //  - altKey: explicit modifier (works on devices without trackpad)
+    //  - plain wheel where vertical delta dominates and shift is not held
+    if (e.ctrlKey || e.metaKey || e.altKey) return true;
+    if (e.shiftKey) return false; // shift = horizontal scroll
+    const dY = Math.abs(e.deltaY);
+    const dX = Math.abs(e.deltaX);
+    return dY > 0 && dY >= dX;
   }
 
   private preventScrollX = (e: WheelEvent) => {

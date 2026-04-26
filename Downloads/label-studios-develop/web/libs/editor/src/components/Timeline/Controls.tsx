@@ -13,6 +13,8 @@ import {
   IconRewind,
   IconTimelinePause,
   IconTimelinePlay,
+  IconZoomIn,
+  IconZoomOut,
 } from "@humansignal/icons";
 import { Button, type ButtonProps, Space } from "@humansignal/ui";
 import { type FC, memo, type MouseEvent, useCallback, useContext, useEffect, useMemo, useState } from "react";
@@ -114,6 +116,20 @@ export const Controls: FC<TimelineControlsProps> = memo(
       setConfigModal(!configModal);
     };
 
+    const ZOOM_STEPS = [1, 1.5, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256] as const;
+    const handleZoomIn = useCallback(() => {
+      const cur = props.zoom || 1;
+      const next = ZOOM_STEPS.find((z) => z > cur + 1e-6) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1];
+      props.onZoom?.(next);
+    }, [props.zoom, props.onZoom]);
+    const handleZoomOut = useCallback(() => {
+      const cur = props.zoom || 1;
+      const idx = ZOOM_STEPS.findIndex((z) => z >= cur - 1e-6);
+      const next = ZOOM_STEPS[Math.max(0, (idx === -1 ? ZOOM_STEPS.length - 1 : idx) - 1)];
+      props.onZoom?.(next);
+    }, [props.zoom, props.onZoom]);
+    const showZoomControls = typeof props.onZoom === "function";
+
     const renderControls = () => {
       return (
         <Space
@@ -121,6 +137,47 @@ export const Controls: FC<TimelineControlsProps> = memo(
           size="small"
           style={{ gridAutoColumns: "auto" }}
         >
+          {showZoomControls && (
+            <>
+              <Button
+                type="button"
+                size="medium"
+                variant="neutral"
+                look="outlined"
+                aria-label="Zoom out"
+                title="Zoom out (− / Ctrl-Wheel)"
+                onClick={handleZoomOut}
+                disabled={(props.zoom || 1) <= 1.0001}
+              >
+                <IconZoomOut />
+              </Button>
+              <span
+                style={{
+                  fontVariantNumeric: "tabular-nums",
+                  minWidth: 44,
+                  textAlign: "center",
+                  fontSize: 12,
+                  color: "var(--color-neutral-content-subtle, #6B7280)",
+                  userSelect: "none",
+                }}
+                aria-label="Current zoom level"
+                title="Current zoom"
+              >
+                {Math.round((props.zoom || 1) * 100)}%
+              </span>
+              <Button
+                type="button"
+                size="medium"
+                variant="neutral"
+                look="outlined"
+                aria-label="Zoom in"
+                title="Zoom in (+ / Ctrl-Wheel)"
+                onClick={handleZoomIn}
+              >
+                <IconZoomIn />
+              </Button>
+            </>
+          )}
           <ConfigControl
             onSetModal={onSetConfigModal}
             onAmpChange={props.onAmpChange}

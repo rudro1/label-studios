@@ -6,85 +6,168 @@ details: |
   <h1>Fixensy Audio Labeling</h1>
   <dl>
     <dt>Features</dt>
-    <dd>Draw segments, mark Valid or Invalid, select speaker, transcribe, or mark whole audio as invalid.</dd>
+    <dd>Dark mode, responsive, large waveform. Draw segments, mark Valid or Invalid, select speaker, transcribe, or mark whole audio as invalid. Invalid bypasses Speaker/Transcription requirements.</dd>
   </dl>
 config: |
-  <View style="font-family:Inter,system-ui,-apple-system,sans-serif; background:#F9FAFB; padding:24px; max-width:900px; margin:0 auto;">
+  <View style="font-family:Inter,system-ui,-apple-system,'Segoe UI',sans-serif; background:#0B1120; color:#E5E7EB; padding:clamp(12px,2vw,28px); width:100%; max-width:1700px; margin:0 auto; min-height:100vh; box-sizing:border-box;">
     <Style>
-      sup { display:none !important; }
-      .lsf-choice__hotkey { display:none !important; }
-      .lsf-hotkey { display:none !important; }
-      .ant-checkbox-wrapper sup { display:none !important; }
-      .ant-radio-wrapper sup { display:none !important; }
-      .lsf-choices { display:block !important; }
-      .lsf-choice { display:inline-block !important; }
-      .ant-radio-group { display:block !important; }
-      .ant-radio-wrapper { display:inline-block !important; margin:4px !important; }
+      /* ===== Reset noise ===== */
+      sup, .lsf-choice__hotkey, .lsf-hotkey,
+      .ant-checkbox-wrapper sup, .ant-radio-wrapper sup { display:none !important; }
+
+      /* ===== Layout primitives ===== */
+      .fx-card { background:#111827; border:1px solid #1F2937; border-radius:14px; padding:clamp(14px,1.6vw,22px); margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.02) inset; transition:border-color 160ms ease, transform 160ms ease; will-change:transform; }
+      .fx-card:hover { border-color:#374151; }
+      .fx-card-danger { background:#1F1315; border:1px solid #7F1D1D; }
+      .fx-card-warn { background:#1F1A0E; border:1.5px solid #B45309; }
+      .fx-label { font-size:11px; font-weight:700; color:#9CA3AF; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:6px; }
+      .fx-sub { font-size:12px; color:#6B7280; margin-bottom:14px; }
+
+      /* ===== Choice grid (responsive) ===== */
+      .lsf-choices { display:grid !important; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; }
+      .lsf-choice { display:flex !important; align-items:center; justify-content:center; }
+      .ant-radio-group { display:grid !important; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px; }
+      .ant-radio-wrapper { display:flex !important; margin:0 !important; align-items:center; justify-content:center; }
       .ant-radio { display:none !important; }
       .lsf-labels { display:none !important; }
+
+      /* ===== TextArea dark ===== */
       .lsf-text-area { width:100% !important; display:block !important; }
-      .lsf-text-area__input { display:block !important; width:100% !important; min-height:120px !important; padding:12px !important; border:1.5px solid #D1D5DB !important; border-radius:8px !important; background:#FFFFFF !important; color:#111827 !important; font-size:14px !important; font-family:Inter,system-ui,sans-serif !important; resize:vertical !important; box-sizing:border-box !important; margin-top:8px !important; }
-      .lsf-text-area__input:focus { outline:none !important; border-color:#6B7280 !important; }
+      .lsf-text-area__input { display:block !important; width:100% !important; min-height:120px !important; padding:12px 14px !important; border:1.5px solid #374151 !important; border-radius:10px !important; background:#0F172A !important; color:#E5E7EB !important; font-size:14px !important; font-family:inherit !important; resize:vertical !important; box-sizing:border-box !important; margin-top:8px !important; transition:border-color 160ms ease, box-shadow 160ms ease; }
+      .lsf-text-area__input::placeholder { color:#4B5563 !important; }
+      .lsf-text-area__input:focus { outline:none !important; border-color:#3B82F6 !important; box-shadow:0 0 0 3px rgba(59,130,246,0.25) !important; }
       .lsf-text-area__add-button { display:none !important; }
+
+      /* ===== Hide Whole-Audio-Invalid once a region exists ===== */
       body[data-has-audio-regions="true"] .whole-audio-section { display:none !important; }
-      .lsf-choices[data-name="whole_audio_quality"] { display:none !important; }
+      /* :has fallback when LSF does not set data-has-audio-regions */
+      .lsf-main-view:has(.lsf-region-item) ~ * .whole-audio-section,
+      .lsf-editor:has(.lsf-region-item) .whole-audio-section { display:none !important; }
+
+      /* ===== Audio v3: bigger waveform, hardware-accelerated transitions ===== */
+      .lsf-audio-tag, .lsf-audio { width:100% !important; }
+      .lsf-audio-tag canvas, .lsf-audio canvas { image-rendering:auto; }
+      .lsf-audio-tag__main, .lsf-audio__main { transform:translateZ(0); }
+
+      /* ===== Bigger zoom / playback control buttons (M2 Mac touch-friendly) ===== */
+      .lsf-audio-control, .lsf-audio__controls button, .lsf-audio-tag__controls button {
+        min-width:38px !important; min-height:38px !important; border-radius:10px !important;
+        background:#1F2937 !important; color:#E5E7EB !important; border:1px solid #374151 !important;
+        transition:background 120ms ease, transform 120ms ease, border-color 120ms ease;
+        will-change:transform;
+      }
+      .lsf-audio-control:hover, .lsf-audio__controls button:hover, .lsf-audio-tag__controls button:hover {
+        background:#374151 !important; border-color:#4B5563 !important; transform:translateY(-1px);
+      }
+      .lsf-audio-control:active, .lsf-audio__controls button:active { transform:translateY(0); }
+
+      /* ===== Larger segment drag handles (easier grab) ===== */
+      .lsf-region__handle, .lsf-region__edge, .lsf-timeline-region__handle {
+        width:10px !important; min-width:10px !important; cursor:ew-resize !important;
+        background:rgba(59,130,246,0.45) !important; transition:background 120ms ease;
+      }
+      .lsf-region__handle:hover, .lsf-region__edge:hover { background:rgba(59,130,246,0.85) !important; }
+
+      /* ===== Choice button base look (overrides inline where needed) ===== */
+      .lsf-choice > label, .ant-radio-wrapper > span:last-child {
+        width:100%; transition:transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+        will-change:transform;
+      }
+      .lsf-choice > label:hover, .ant-radio-wrapper:hover > span:last-child {
+        transform:translateY(-1px); filter:brightness(1.08);
+      }
+
+      /* ===== Responsive: 13" laptop tweaks ===== */
+      @media (max-width: 1366px) {
+        .fx-card { padding:14px; }
+        .lsf-choices, .ant-radio-group { grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:8px; }
+      }
+      @media (max-width: 900px) {
+        .lsf-choices, .ant-radio-group { grid-template-columns:repeat(2, 1fr); }
+      }
+      @media (max-width: 600px) {
+        .lsf-choices, .ant-radio-group { grid-template-columns:1fr; }
+      }
+
+      /* ===== Scrollbar dark ===== */
+      ::-webkit-scrollbar { width:10px; height:10px; }
+      ::-webkit-scrollbar-thumb { background:#374151; border-radius:8px; }
+      ::-webkit-scrollbar-track { background:#0B1120; }
     </Style>
-    <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-      <Audio name="audio" value="$audio" zoom="true" hotkey="space"/>
+
+    <!-- Waveform -->
+    <View className="fx-card">
+      <Audio name="audio" value="$audio" zoom="true" hotkey="space" height="260" defaultZoom="1" cursorWidth="2" defaultSpeed="1" defaultVolume="1"/>
       <Labels name="labels" toName="audio">
-        <Label value="Segment" background="#4A90D9" selected="true"/>
+        <Label value="Segment" background="#3B82F6" selected="true"/>
       </Labels>
     </View>
-    <View className="whole-audio-section" style="background:#FFF5F5; border:1px solid #FECACA; border-radius:12px; padding:10px 16px; margin-bottom:16px;">
-      <View style="font-size:12px; color:#9CA3AF;">
-        <Text name="lbl_whole" value="🔇 Whole audio unusable?"/>
+
+    <!-- Whole Audio Invalid (auto-hides when segment exists) -->
+    <View className="fx-card fx-card-danger whole-audio-section">
+      <View className="fx-label" style="color:#FCA5A5;">
+        <Text name="lbl_whole" value="🔇 WHOLE AUDIO UNUSABLE?"/>
       </View>
       <Choices name="whole_audio_quality" toName="audio" choice="single" showInline="true">
-        <Choice value="Whole Audio Invalid" style="display:inline-block; background:#FEE2E2; color:#991B1B; border:1.5px solid #EF4444; padding:4px 12px; border-radius:20px; font-weight:600; font-size:12px; cursor:pointer;"/>
+        <Choice value="Whole Audio Invalid" style="display:inline-flex; align-items:center; justify-content:center; background:#7F1D1D; color:#FECACA; border:1.5px solid #EF4444; padding:10px 22px; border-radius:10px; font-weight:600; font-size:13px; cursor:pointer;"/>
       </Choices>
     </View>
-    <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="region-selected">
-      <View style="font-size:12px; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+
+    <!-- Per-segment status -->
+    <View className="fx-card" visibleWhen="region-selected">
+      <View className="fx-label">
         <Text name="lbl_status" value="Clip Status"/>
       </View>
-      <View style="font-size:12px; color:#9CA3AF; margin-bottom:14px;">
+      <View className="fx-sub">
         <Text name="lbl_status_desc" value="Mark this segment as Valid or Invalid."/>
       </View>
-      <Choices name="quality" toName="audio" choice="single" required="true" showInline="true" perRegion="true">
-        <Choice value="Valid" style="display:inline-block; background:#DCFCE7; color:#065F46; border:1.5px solid #10B981; padding:10px 28px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:600; font-size:14px; cursor:pointer;"/>
-        <Choice value="Invalid" style="display:inline-block; background:#FEE2E2; color:#7F1D1D; border:1.5px solid #EF4444; padding:10px 28px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:600; font-size:14px; cursor:pointer;"/>
+      <Choices name="quality" toName="audio" choice="single" required="true" requiredMessage="Mark segment Valid or Invalid" showInline="true" perRegion="true">
+        <Choice value="Valid" style="display:flex; align-items:center; justify-content:center; background:#064E3B; color:#A7F3D0; border:1.5px solid #10B981; padding:12px 28px; border-radius:10px; min-width:130px; font-weight:600; font-size:14px; cursor:pointer;"/>
+        <Choice value="Invalid" style="display:flex; align-items:center; justify-content:center; background:#7F1D1D; color:#FECACA; border:1.5px solid #EF4444; padding:12px 28px; border-radius:10px; min-width:130px; font-weight:600; font-size:14px; cursor:pointer;"/>
       </Choices>
     </View>
-    <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid" perRegion="true">
-      <View style="font-size:12px; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+
+    <!-- Speaker (Valid only — required) -->
+    <View className="fx-card" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid" perRegion="true">
+      <View className="fx-label">
         <Text name="lbl_spk" value="Select Speaker"/>
       </View>
-      <Choices name="speaker" toName="audio" choice="single" showInline="true" perRegion="true">
-        <Choice value="Speaker A" style="display:inline-block; background:#DBEAFE; color:#1E3A8A; border:1.5px solid #3B82F6; padding:10px 24px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:600; font-size:14px; cursor:pointer;"/>
-        <Choice value="Speaker B" style="display:inline-block; background:#EDE9FE; color:#4C1D95; border:1.5px solid #8B5CF6; padding:10px 24px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:600; font-size:14px; cursor:pointer;"/>
-        <Choice value="Speaker C" style="display:inline-block; background:#D1FAE5; color:#065F46; border:1.5px solid #10B981; padding:10px 24px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:600; font-size:14px; cursor:pointer;"/>
+      <Choices name="speaker" toName="audio" choice="single" required="true" requiredMessage="Pick a speaker for this Valid segment" showInline="true" perRegion="true">
+        <Choice value="Speaker A" style="display:flex; align-items:center; justify-content:center; background:#1E3A8A; color:#BFDBFE; border:1.5px solid #3B82F6; padding:12px 22px; border-radius:10px; min-width:130px; font-weight:600; font-size:14px; cursor:pointer;"/>
+        <Choice value="Speaker B" style="display:flex; align-items:center; justify-content:center; background:#4C1D95; color:#DDD6FE; border:1.5px solid #8B5CF6; padding:12px 22px; border-radius:10px; min-width:130px; font-weight:600; font-size:14px; cursor:pointer;"/>
+        <Choice value="Speaker C" style="display:flex; align-items:center; justify-content:center; background:#064E3B; color:#A7F3D0; border:1.5px solid #10B981; padding:12px 22px; border-radius:10px; min-width:130px; font-weight:600; font-size:14px; cursor:pointer;"/>
       </Choices>
     </View>
-    <View style="background:#FFFFFF; border:1px solid #D1D5DB; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid" perRegion="true">
-      <View style="font-size:12px; font-weight:700; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+
+    <!-- Transcription (Valid only — required) -->
+    <View className="fx-card" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid" perRegion="true">
+      <View className="fx-label">
         <Text name="lbl_tr" value="Transcription"/>
       </View>
-      <TextArea name="transcription" toName="audio" placeholder="Type transcription here..." rows="4" editable="true" showSubmitButton="false" perRegion="true" maxSubmissions="1"/>
+      <TextArea name="transcription" toName="audio" placeholder="Type transcription here..." rows="4" editable="true" showSubmitButton="false" perRegion="true" maxSubmissions="1" required="true" requiredMessage="Transcription required for Valid segments"/>
     </View>
-    <View style="background:#FFFFFF; border:1px solid #FECACA; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Invalid" perRegion="true">
-      <View style="font-size:12px; font-weight:700; color:#7F1D1D; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+
+    <!-- Reason (Invalid only — NOT required for speaker/transcription) -->
+    <View className="fx-card fx-card-danger" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Invalid" perRegion="true">
+      <View className="fx-label" style="color:#FCA5A5;">
         <Text name="lbl_rsn" value="Reason For Rejection"/>
       </View>
       <Choices name="invalid_reason" toName="audio" choice="single" showInline="true" perRegion="true">
-        <Choice value="Noise" style="display:inline-block; background:#FFF3E0; color:#E65100; border:1.5px solid #FF9800; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Overlap" style="display:inline-block; background:#FFFDE7; color:#F57F17; border:1.5px solid #FDD835; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Silence" style="display:inline-block; background:#E3F2FD; color:#1565C0; border:1.5px solid #42A5F5; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Inaudible" style="display:inline-block; background:#F3E5F5; color:#6A1B9A; border:1.5px solid #AB47BC; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
-        <Choice value="Other" style="display:inline-block; background:#FEF3C7; color:#92400E; border:1.5px solid #F59E0B; padding:10px 18px; border-radius:8px; margin:6px; min-width:130px; text-align:center; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Noise" style="display:flex; align-items:center; justify-content:center; background:#451A03; color:#FED7AA; border:1.5px solid #F97316; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Overlap" style="display:flex; align-items:center; justify-content:center; background:#422006; color:#FDE68A; border:1.5px solid #F59E0B; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Silence" style="display:flex; align-items:center; justify-content:center; background:#0C4A6E; color:#BAE6FD; border:1.5px solid #38BDF8; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Inaudible" style="display:flex; align-items:center; justify-content:center; background:#3B0764; color:#E9D5FF; border:1.5px solid #A855F7; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Breathing" style="display:flex; align-items:center; justify-content:center; background:#0C4A6E; color:#BAE6FD; border:1.5px solid #0EA5E9; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Cough" style="display:flex; align-items:center; justify-content:center; background:#500724; color:#FBCFE8; border:1.5px solid #EC4899; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Laugh" style="display:flex; align-items:center; justify-content:center; background:#451A03; color:#FDE68A; border:1.5px solid #F59E0B; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Non-target Language" style="display:flex; align-items:center; justify-content:center; background:#3B0764; color:#DDD6FE; border:1.5px solid #8B5CF6; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
+        <Choice value="Other" style="display:flex; align-items:center; justify-content:center; background:#422006; color:#FDE68A; border:1.5px solid #F59E0B; padding:10px 18px; border-radius:10px; min-width:130px; font-weight:500; font-size:13px; cursor:pointer;"/>
       </Choices>
     </View>
-    <View style="background:#FFFBEB; border:1.5px solid #F59E0B; border-radius:12px; padding:20px; margin-bottom:16px; box-shadow:0 1px 3px rgba(0,0,0,0.06);" visibleWhen="choice-selected" whenTagName="invalid_reason" whenChoiceValue="Other" perRegion="true">
-      <View style="font-size:12px; font-weight:700; color:#92400E; text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px;">
+
+    <!-- Other reason free text -->
+    <View className="fx-card fx-card-warn" visibleWhen="choice-selected" whenTagName="invalid_reason" whenChoiceValue="Other" perRegion="true">
+      <View className="fx-label" style="color:#FCD34D;">
         <Text name="lbl_other" value="Please Describe The Reason"/>
       </View>
       <TextArea name="other_reason" toName="audio" placeholder="Write your reason here..." rows="4" editable="true" showSubmitButton="false" perRegion="true" maxSubmissions="1"/>

@@ -380,10 +380,32 @@ class ImportAPI(generics.CreateAPIView):
 
         if len(request.FILES):
             logger.debug(f'Import from files: {request.FILES}')
-            file_upload_ids, could_be_tasks_list = create_file_uploads(request.user, project, request.FILES)
-            project_import.file_upload_ids = file_upload_ids
-            project_import.could_be_tasks_list = could_be_tasks_list
-            project_import.save(update_fields=['file_upload_ids', 'could_be_tasks_list'])
+            import os as _os
+            from .uploader import _media_key_for_filename, cloudinary_upload
+            from django.http import QueryDict
+            cloud_name = _os.environ.get('CLOUDINARY_CLOUD_NAME')
+            preset = _os.environ.get('CLOUDINARY_UPLOAD_PRESET')
+            cloud_enabled = bool(cloud_name and preset)
+            cloud_tasks = []
+            remaining_files = {}
+            for fname, fobj in request.FILES.items():
+                media_key = _media_key_for_filename(fobj.name) if cloud_enabled else None
+                if media_key:
+                    url = cloudinary_upload(fobj, fobj.name)
+                    if not url:
+                        raise ValidationError('Cloudinary upload returned no URL')
+                    cloud_tasks.append({'data': {media_key: url}})
+                else:
+                    remaining_files[fname] = fobj
+            if remaining_files:
+                file_upload_ids, could_be_tasks_list = create_file_uploads(request.user, project, remaining_files)
+                project_import.file_upload_ids = file_upload_ids
+                project_import.could_be_tasks_list = could_be_tasks_list
+                project_import.save(update_fields=['file_upload_ids', 'could_be_tasks_list'])
+            if cloud_tasks:
+                existing = list(project_import.tasks or [])
+                project_import.tasks = existing + cloud_tasks
+                project_import.save(update_fields=['tasks'])
         elif 'application/x-www-form-urlencoded' in request.content_type:
             logger.debug(f'Import from url: {request.data.get("url")}')
             # empty url

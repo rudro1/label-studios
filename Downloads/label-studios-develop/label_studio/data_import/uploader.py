@@ -122,8 +122,79 @@ def str_to_json(data):
         return None
 
 
+MEDIA_EXT_TO_KEY = {
+    # audio
+    '.wav': 'audio', '.mp3': 'audio', '.ogg': 'audio', '.flac': 'audio',
+    '.m4a': 'audio', '.aac': 'audio', '.opus': 'audio',
+    # video
+    '.mp4': 'video', '.webm': 'video', '.mov': 'video', '.avi': 'video', '.mkv': 'video',
+    # image
+    '.jpg': 'image', '.jpeg': 'image', '.png': 'image', '.gif': 'image',
+    '.bmp': 'image', '.webp': 'image', '.svg': 'image',
+}
+
+
+def _media_key_for_url(url):
+    """Return ('audio'|'video'|'image', filename) if url points to media, else (None, None)."""
+    from urllib.parse import unquote, urlparse
+    try:
+        path = unquote(urlparse(url).path)
+    except Exception:
+        return None, None
+    filename = path.rsplit('/', 1)[-1]
+    if '?' in filename:
+        filename = filename.split('?')[0]
+    _, ext = os.path.splitext(filename.lower())
+    return MEDIA_EXT_TO_KEY.get(ext), filename
+
+
+def _media_key_for_filename(filename):
+    _, ext = os.path.splitext((filename or '').lower())
+    return MEDIA_EXT_TO_KEY.get(ext)
+
+
+def cloudinary_upload(file_obj, filename):
+    """Push file bytes to Cloudinary unsigned upload. Return secure URL.
+
+    Requires env: CLOUDINARY_CLOUD_NAME and CLOUDINARY_UPLOAD_PRESET.
+    Optional: CLOUDINARY_FOLDER.
+    """
+    import requests
+
+    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME')
+    preset = os.environ.get('CLOUDINARY_UPLOAD_PRESET')
+    folder = os.environ.get('CLOUDINARY_FOLDER', '')
+    if not cloud_name or not preset:
+        return None
+
+    endpoint = f'https://api.cloudinary.com/v1_1/{cloud_name}/auto/upload'
+    file_obj.seek(0)
+    data = {'upload_preset': preset}
+    if folder:
+        data['folder'] = folder
+    files = {'file': (filename, file_obj.read())}
+    resp = requests.post(endpoint, data=data, files=files, timeout=120)
+    if resp.status_code >= 400:
+        raise ValidationError(f'Cloudinary upload failed: {resp.status_code} {resp.text[:200]}')
+    payload = resp.json()
+    return payload.get('secure_url') or payload.get('url')
+
+
 def tasks_from_url(file_upload_ids, project, user, url, could_be_tasks_list):
-    """Download file using URL and read tasks from it"""
+    """Download file using URL and read tasks from it.
+
+    Media URLs (audio/video/image) bypass download and are stored as link-only tasks
+    so raw bytes never land on the VPS.
+    """
+    media_key, media_filename = _media_key_for_url(url)
+    if media_key:
+        # Validate ext is in SUPPORTED_EXTENSIONS to keep policy consistent
+        _, ext = os.path.splitext(media_filename.lower())
+        if ext and ext not in settings.SUPPORTED_EXTENSIONS:
+            raise ValidationError(f'{ext} extension is not supported')
+        tasks = [{'data': {media_key: url}}]
+        return [media_key], {}, tasks, file_upload_ids, could_be_tasks_list
+
     # process URL with tasks
     try:
         filename = url.rsplit('/', 1)[-1]
@@ -190,12 +261,22 @@ def create_file_uploads(user, project, FILES):
 def load_tasks_for_async_import(project_import, user):
     """Load tasks from different types of request.data / request.files saved in project_import model"""
     file_upload_ids, found_formats, data_keys = [], [], set()
+    extra_tasks = []
+    extra_keys = set()
+    if project_import.tasks and project_import.file_upload_ids:
+        extra_tasks = list(project_import.tasks)
+        for t in extra_tasks:
+            if isinstance(t, dict) and isinstance(t.get('data'), dict):
+                extra_keys |= set(t['data'].keys())
 
     if project_import.file_upload_ids:
         file_upload_ids = project_import.file_upload_ids
         tasks, found_formats, data_keys = FileUpload.load_tasks_from_uploaded_files(
             project_import.project, file_upload_ids
         )
+        if extra_tasks:
+            tasks = list(tasks) + extra_tasks
+            data_keys = set(data_keys) | extra_keys
 
     # take tasks from url address
     elif project_import.url:
@@ -348,12 +429,31 @@ def load_tasks(request, project):
     if len(request.FILES):
         check_request_files_size(request.FILES)
         check_extensions(request.FILES)
-        for filename, file in request.FILES.items():
-            file_upload = create_file_upload(request.user, project, file)
-            if file_upload.format_could_be_tasks_list:
-                could_be_tasks_list = True
-            file_upload_ids.append(file_upload.id)
-        tasks, found_formats, data_keys = FileUpload.load_tasks_from_uploaded_files(project, file_upload_ids)
+        cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME')
+        preset = os.environ.get('CLOUDINARY_UPLOAD_PRESET')
+        cloud_enabled = bool(cloud_name and preset)
+        cloud_tasks = []
+        cloud_keys = set()
+        for _, file in request.FILES.items():
+            media_key = _media_key_for_filename(file.name) if cloud_enabled else None
+            if media_key:
+                url = cloudinary_upload(file, file.name)
+                if not url:
+                    raise ValidationError('Cloudinary upload returned no URL')
+                cloud_tasks.append({'data': {media_key: url}})
+                cloud_keys.add(media_key)
+            else:
+                file_upload = create_file_upload(request.user, project, file)
+                if file_upload.format_could_be_tasks_list:
+                    could_be_tasks_list = True
+                file_upload_ids.append(file_upload.id)
+        if file_upload_ids:
+            tasks, found_formats, data_keys = FileUpload.load_tasks_from_uploaded_files(project, file_upload_ids)
+        else:
+            tasks, found_formats, data_keys = [], {}, set()
+        if cloud_tasks:
+            tasks = list(tasks) + cloud_tasks
+            data_keys = set(data_keys) | cloud_keys
 
     # take tasks from url address
     elif 'application/x-www-form-urlencoded' in request.content_type:
