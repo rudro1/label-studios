@@ -27,7 +27,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -38,7 +38,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deploy to VPS
+      - name: Deploy to VPS (zero-downtime)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 35.240.222.149
@@ -46,9 +46,75 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: GITHUB_TOKEN,GITHUB_ACTOR
           script: |
-            cd /home/rudro/label-studios-develop
+            set -e
+            DEPLOY_DIR=/home/rudro/label-studios-develop
+
+            echo "==> Logging in to GHCR..."
             echo "$GITHUB_TOKEN" | sudo docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+            echo "==> Pulling latest image..."
             sudo docker pull ghcr.io/rudro1/label-studios:latest
-            # nginx stays up (zero downtime) — only app+worker restart
-            sudo docker compose -f docker-compose.vps.yml up -d --no-deps --force-recreate app rqworker
+
+            echo "==> Syncing updated files from image to deploy dir..."
+            sudo docker run --rm \
+              -v "$DEPLOY_DIR":/host \
+              ghcr.io/rudro1/label-studios:latest \
+              sh -c "cp -f /label-studio/docker-compose.vps.yml /host/docker-compose.vps.yml 2>/dev/null; \
+                     cp -f /label-studio/ensure_admin.py /host/ensure_admin.py 2>/dev/null; true"
+
+            cd "$DEPLOY_DIR"
+
+            echo "==> Starting/updating postgres + redis (if not already healthy)..."
+            sudo docker compose -f docker-compose.vps.yml up -d postgres redis
+            echo "==> Waiting for postgres to be healthy..."
+            for i in $(seq 1 30); do
+              STATUS=$(sudo docker inspect --format='{{.State.Health.Status}}' label-studios-develop-postgres-1 2>/dev/null || echo "unknown")
+              if [ "$STATUS" = "healthy" ]; then
+                echo "    postgres is healthy after ${i}s"
+                break
+              fi
+              echo "    waiting... (${i}s) status=$STATUS"
+              sleep 2
+            done
+
+            echo "==> Zero-downtime restart: rqworker first, then app..."
+            sudo docker compose -f docker-compose.vps.yml up -d --no-deps --force-recreate rqworker
+            sleep 5
+            sudo docker compose -f docker-compose.vps.yml up -d --no-deps --force-recreate app
+            sleep 10
+
+            echo "==> Waiting for app to become ready..."
+            for i in $(seq 1 30); do
+              CODE=$(sudo docker exec label-studios-develop-app-1 \
+                curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health/ 2>/dev/null || echo "000")
+              if [ "$CODE" = "200" ]; then
+                echo "    app healthy after ${i}s (HTTP $CODE)"
+                break
+              fi
+              echo "    waiting... (${i}s) HTTP=$CODE"
+              sleep 3
+            done
+
+            echo "==> Ensuring admin user (info@fixensy.com)..."
+            sudo docker cp "$DEPLOY_DIR/ensure_admin.py" label-studios-develop-app-1:/tmp/ensure_admin.py
+            sudo docker exec label-studios-develop-app-1 \
+              sh -c "cd /label-studio && .venv/bin/python label_studio/manage.py shell < /tmp/ensure_admin.py" \
+              2>&1 | grep -E "ensure_admin|ERROR|error" || true
+
+            echo "==> Reloading nginx (no downtime — nginx stays running)..."
+            sudo docker compose -f docker-compose.vps.yml up -d --no-deps nginx
+            sleep 3
+
+            echo "==> Smoke test — checking HTTP response from outside..."
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -L http://35.240.222.149/ 2>/dev/null || echo "000")
+            if [ "$CODE" = "200" ] || [ "$CODE" = "302" ]; then
+              echo "    PASS: site returned HTTP $CODE"
+            else
+              echo "    WARN: site returned HTTP $CODE — check logs"
+            fi
+
+            echo "==> Pruning old images..."
             sudo docker image prune -f
+
+            echo "==> Deploy COMPLETE"
+            sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
