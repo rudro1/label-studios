@@ -70,3 +70,22 @@ print(f"[ensure_admin]  is_super : {user.is_superuser}")
 print(f"[ensure_admin]  active   : {user.is_active}")
 print(f"[ensure_admin] ─────────────────────────────────────────────────────")
 print(f"[ensure_admin] DONE — login with {ADMIN_EMAIL} / {ADMIN_PASSWORD}")
+
+# ── 6. ensure legacy API tokens are enabled (prevents 401 on all API calls) ─
+try:
+    from jwt_auth.models import JWTSettings
+    jwt_settings, created = JWTSettings.objects.get_or_create(organization=org)
+    changed = False
+    if not jwt_settings.legacy_api_tokens_enabled:
+        jwt_settings.legacy_api_tokens_enabled = True
+        changed = True
+    if not jwt_settings.api_tokens_enabled:
+        jwt_settings.api_tokens_enabled = True
+        changed = True
+    if changed:
+        jwt_settings.save()
+        print("[ensure_admin] ✓ JWT settings FIXED — legacy + api tokens enabled")
+    else:
+        print("[ensure_admin] ✓ JWT settings OK — legacy + api tokens already enabled")
+except Exception as e:
+    print(f"[ensure_admin] ⚠ JWT settings skipped: {e}")
