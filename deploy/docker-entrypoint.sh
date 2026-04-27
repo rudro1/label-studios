@@ -78,5 +78,7 @@ elif [ "$1" = "label-studio-migrate" ]; then
   exec python3 /label-studio/label_studio/manage.py locked_migrate >&3
 else
   exec_entrypoint "$ENTRYPOINT_PATH/app-docker/"
+  # Ensure admin user before starting main process
+  python3 /label-studio/deploy/ensure_admin.py
   exec_or_wrap_n_exec "$@"
 fi

@@ -173,9 +173,8 @@ COPY --chown=1001:0 --from=frontend-builder           $LS_DIR/web/dist          
 USER 1001
 
 EXPOSE 8080
-ENV PORT=7860
-EXPOSE 7860
+ENV PORT=8080
 # ENTRYPOINT ["./deploy/docker-entrypoint.sh"]
 # CMD ["label-studio"]
 ENTRYPOINT ["./deploy/docker-entrypoint.sh"]
-CMD ["label-studio", "--port", "7860"]
+CMD ["label-studio"]
