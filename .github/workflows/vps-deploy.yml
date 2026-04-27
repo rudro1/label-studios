@@ -48,69 +48,75 @@ jobs:
           script: |
             set -e
             DEPLOY_DIR=/home/rudro/label-studios-develop
+            IMAGE=ghcr.io/rudro1/label-studios:latest
 
             echo "==> Logging in to GHCR..."
-            echo "$GITHUB_TOKEN" | sudo docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+            printf '%s' "$GITHUB_TOKEN" | sudo docker login ghcr.io \
+              --username "$GITHUB_ACTOR" \
+              --password-stdin
 
             echo "==> Pulling latest image..."
-            sudo docker pull ghcr.io/rudro1/label-studios:latest
-
-            echo "==> Syncing updated files from image to deploy dir..."
-            sudo docker run --rm \
-              -v "$DEPLOY_DIR":/host \
-              ghcr.io/rudro1/label-studios:latest \
-              sh -c "cp -f /label-studio/docker-compose.vps.yml /host/docker-compose.vps.yml 2>/dev/null; \
-                     cp -f /label-studio/ensure_admin.py /host/ensure_admin.py 2>/dev/null; true"
+            sudo docker pull "$IMAGE"
 
             cd "$DEPLOY_DIR"
-
-            echo "==> Starting/updating postgres + redis (if not already healthy)..."
-            sudo docker compose -f docker-compose.vps.yml up -d postgres redis
-            echo "==> Waiting for postgres to be healthy..."
-            for i in $(seq 1 30); do
-              STATUS=$(sudo docker inspect --format='{{.State.Health.Status}}' label-studios-develop-postgres-1 2>/dev/null || echo "unknown")
-              if [ "$STATUS" = "healthy" ]; then
-                echo "    postgres is healthy after ${i}s"
-                break
-              fi
-              echo "    waiting... (${i}s) status=$STATUS"
-              sleep 2
-            done
 
             echo "==> Zero-downtime restart: rqworker first, then app..."
             sudo docker compose -f docker-compose.vps.yml up -d --no-deps --force-recreate rqworker
             sleep 5
             sudo docker compose -f docker-compose.vps.yml up -d --no-deps --force-recreate app
-            sleep 10
+            sleep 15
 
             echo "==> Waiting for app to become ready..."
-            for i in $(seq 1 30); do
+            for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
               CODE=$(sudo docker exec label-studios-develop-app-1 \
                 curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health/ 2>/dev/null || echo "000")
               if [ "$CODE" = "200" ]; then
-                echo "    app healthy after ${i}s (HTTP $CODE)"
+                echo "    app healthy after ${i} attempts (HTTP $CODE)"
                 break
               fi
-              echo "    waiting... (${i}s) HTTP=$CODE"
+              echo "    attempt $i — HTTP=$CODE, waiting 3s..."
               sleep 3
             done
 
-            echo "==> Ensuring admin user (info@fixensy.com)..."
-            sudo docker cp "$DEPLOY_DIR/ensure_admin.py" label-studios-develop-app-1:/tmp/ensure_admin.py
+            echo "==> Ensuring admin user info@fixensy.com..."
             sudo docker exec label-studios-develop-app-1 \
-              sh -c "cd /label-studio && .venv/bin/python label_studio/manage.py shell < /tmp/ensure_admin.py" \
-              2>&1 | grep -E "ensure_admin|ERROR|error" || true
+              sh -c "cd /label-studio && cat > /tmp/_ea.py << 'PYEOF'
+import os
+from users.models import User
+from organizations.models import Organization
+email = os.environ.get('LABEL_STUDIO_USERNAME', 'info@fixensy.com')
+pwd   = os.environ.get('LABEL_STUDIO_PASSWORD', 'Fixensy01+')
+u = User.objects.filter(email=email).first()
+if u is None:
+    u = User.objects.create_superuser(email=email, password=pwd)
+    print('[admin] created')
+else:
+    u.set_password(pwd)
+    u.is_staff = True
+    u.is_superuser = True
+    u.is_active = True
+    u.save(update_fields=['password','is_staff','is_superuser','is_active'])
+    print('[admin] updated')
+org = Organization.objects.first()
+if org and not org.has_user(u):
+    org.add_user(u)
+if org:
+    u.active_organization = org
+    u.save(update_fields=['active_organization'])
+print(f'[admin] OK: {u.email}')
+PYEOF
+.venv/bin/python label_studio/manage.py shell < /tmp/_ea.py" 2>&1 | grep -E "\[admin\]" || true
 
-            echo "==> Reloading nginx (no downtime — nginx stays running)..."
+            echo "==> Reloading nginx..."
             sudo docker compose -f docker-compose.vps.yml up -d --no-deps nginx
             sleep 3
 
-            echo "==> Smoke test — checking HTTP response from outside..."
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" -L http://35.240.222.149/ 2>/dev/null || echo "000")
+            echo "==> Smoke test..."
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -L http://35.240.222.149/ || echo "000")
             if [ "$CODE" = "200" ] || [ "$CODE" = "302" ]; then
-              echo "    PASS: site returned HTTP $CODE"
+              echo "    PASS — site returned HTTP $CODE"
             else
-              echo "    WARN: site returned HTTP $CODE — check logs"
+              echo "    WARN — site returned HTTP $CODE"
             fi
 
             echo "==> Pruning old images..."
