@@ -65,6 +65,8 @@ services:
       LABEL_STUDIO_PASSWORD: ${LABEL_STUDIO_PASSWORD}
       ADMIN_EMAIL: ${LABEL_STUDIO_USERNAME}
       ADMIN_PASSWORD: ${LABEL_STUDIO_PASSWORD}
+      PYTHONPATH: /label-studio/label_studio
+      DJANGO_SETTINGS_MODULE: core.settings.label_studio
       # DB
       LABEL_STUDIO_DB: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DJANGO_DB: postgresql
@@ -104,7 +106,7 @@ services:
       # CSP
       ENABLE_CSP: ${ENABLE_CSP:-1}
       LS_CSP_REPORT_ONLY: ${LS_CSP_REPORT_ONLY:-0}
-    command: ["label-studio-uwsgi"]
+    command: ["label-studio", "--port", "8000"]
     expose:
       - "8000"
     volumes:
@@ -142,7 +144,9 @@ services:
       CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
       CLOUDINARY_UPLOAD_PRESET: ${CLOUDINARY_UPLOAD_PRESET}
       CONVERTER_DOWNLOAD_RESOURCES: ${CONVERTER_DOWNLOAD_RESOURCES:-0}
-    command: ["/label-studio/.venv/bin/python", "/label-studio/label_studio/manage.py", "rqworker", "default", "high", "low", "critical"]
+      PYTHONPATH: /label-studio/label_studio
+      DJANGO_SETTINGS_MODULE: core.settings.label_studio
+    command: ["sh", "-c", "cd /label-studio && .venv/bin/python label_studio/manage.py rqworker default high low critical"]
     volumes:
       - labelstudio_data:/label-studio/data
     deploy:
