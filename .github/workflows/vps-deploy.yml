@@ -49,5 +49,6 @@ jobs:
             cd /home/rudro/label-studios-develop
             echo "$GITHUB_TOKEN" | sudo docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
             sudo docker pull ghcr.io/rudro1/label-studios:latest
-            sudo docker compose -f docker-compose.vps.yml up -d --no-deps --force-recreate app rqworker nginx
+            # nginx stays up (zero downtime) — only app+worker restart
+            sudo docker compose -f docker-compose.vps.yml up -d --no-deps --force-recreate app rqworker
             sudo docker image prune -f
