@@ -37,7 +37,16 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "no"]
+    command:
+      [
+        "redis-server",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+        "--appendonly",
+        "no",
+      ]
     volumes:
       - redis_data:/data
     healthcheck:
@@ -65,6 +74,7 @@ services:
       LABEL_STUDIO_PASSWORD: ${LABEL_STUDIO_PASSWORD}
       ADMIN_EMAIL: ${LABEL_STUDIO_USERNAME}
       ADMIN_PASSWORD: ${LABEL_STUDIO_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
       PYTHONPATH: /label-studio/label_studio
       DJANGO_SETTINGS_MODULE: core.settings.label_studio
       # DB
@@ -85,9 +95,9 @@ services:
       UWSGI_WORKER_HARAKIRI: ${UWSGI_WORKER_HARAKIRI:-600}
       UWSGI_WORKER_RELOAD_ON_RSS: ${UWSGI_WORKER_RELOAD_ON_RSS:-1024}
       # Cookie security (HTTPS required)
-      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-1}
-      CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-1}
-      CSRF_COOKIE_HTTPONLY: ${CSRF_COOKIE_HTTPONLY:-1}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-0}
+      CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-0}
+      CSRF_COOKIE_HTTPONLY: ${CSRF_COOKIE_HTTPONLY:-0}
       # VPS storage policy: link-only imports (Cloudinary), no raw bytes on disk
       LINK_ONLY_IMPORT: ${LINK_ONLY_IMPORT:-1}
       CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
@@ -130,6 +140,7 @@ services:
         condition: service_healthy
     environment:
       LABEL_STUDIO_HOST: ${LABEL_STUDIO_HOST}
+      SECRET_KEY: ${SECRET_KEY}
       LABEL_STUDIO_DB: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       DJANGO_DB: postgresql
       POSTGRE_HOST: postgres
@@ -146,7 +157,12 @@ services:
       CONVERTER_DOWNLOAD_RESOURCES: ${CONVERTER_DOWNLOAD_RESOURCES:-0}
       PYTHONPATH: /label-studio/label_studio
       DJANGO_SETTINGS_MODULE: core.settings.label_studio
-    command: ["sh", "-c", "cd /label-studio && .venv/bin/python label_studio/manage.py rqworker default high low critical"]
+    command:
+      [
+        "sh",
+        "-c",
+        "cd /label-studio && .venv/bin/python label_studio/manage.py rqworker default high low critical",
+      ]
     volumes:
       - labelstudio_data:/label-studio/data
     deploy:
