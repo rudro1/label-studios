@@ -26,7 +26,20 @@ DEBUG_PROPAGATE_EXCEPTIONS = get_bool_env('DEBUG_PROPAGATE_EXCEPTIONS', False)
 
 SESSION_COOKIE_SECURE = get_bool_env('SESSION_COOKIE_SECURE', False)
 
-SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
+# DB-backed sessions — stable across restarts, works correctly behind Nginx proxy
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
+# Proxy headers — required when running behind Nginx
+USE_X_FORWARDED_HOST = get_bool_env('USE_X_FORWARDED_HOST', True)
+CSRF_TRUSTED_ORIGINS = [
+    'http://35.240.222.149',
+    'http://localhost',
+    'http://127.0.0.1',
+]
+# Allow adding more trusted origins via env (comma-separated)
+_extra_origins = get_env('CSRF_TRUSTED_ORIGINS_EXTRA', '')
+if _extra_origins:
+    CSRF_TRUSTED_ORIGINS += [o.strip() for o in _extra_origins.split(',') if o.strip()]
 
 SENTRY_DSN = get_env('SENTRY_DSN', 'https://68b045ab408a4d32a910d339be8591a4@o227124.ingest.sentry.io/5820521')
 SENTRY_ENVIRONMENT = get_env('SENTRY_ENVIRONMENT', 'opensource')
