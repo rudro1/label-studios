@@ -23,8 +23,9 @@ from projects.models import Project
 from rest_framework import generics, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from tasks.models import Annotation, AnnotationDraft, Prediction, Task
+from tasks.models import Annotation, AnnotationDraft, Prediction, Task, TaskAssignment
 from tasks.openapi_schema import (
     annotation_request_schema,
     annotation_response_example,
@@ -412,6 +413,38 @@ class TaskAPI(generics.RetrieveUpdateDestroyAPIView):
     @extend_schema(exclude=True)
     def put(self, request, *args, **kwargs):
         return super(TaskAPI, self).put(request, *args, **kwargs)
+
+
+class TaskRejectAPI(generics.GenericAPIView):
+    """Reviewer rejects a task with a reason. Routes the assignment back to the original annotator."""
+    permission_classes = (IsAuthenticated,)
+
+    @extend_schema(exclude=True)
+    def post(self, request, pk):
+        assignment = TaskAssignment.objects.select_related('annotator', 'reviewer').filter(task_id=pk).first()
+        if not assignment:
+            raise ValidationError({'detail': 'No assignment exists for this task.'})
+
+        if not request.user.is_superuser and assignment.reviewer_id != request.user.id:
+            raise PermissionDenied('Only the assigned reviewer can reject this task.')
+
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            raise ValidationError({'reason': 'Rejection reason is required.'})
+        if len(reason) > 2000:
+            raise ValidationError({'reason': 'Rejection reason must be 2000 characters or fewer.'})
+
+        assignment.status = TaskAssignment.STATUS_REJECTED
+        assignment.rejection_reason = reason
+        assignment.completed_at = None
+        assignment.save(update_fields=['status', 'rejection_reason', 'completed_at', 'updated_at'])
+        logger.info(f'Task {pk} rejected by reviewer {request.user.id}: {reason[:80]}')
+        return Response({
+            'task_id': pk,
+            'status': assignment.status,
+            'rejection_reason': assignment.rejection_reason,
+            'annotator_id': assignment.annotator_id,
+        })
 
 
 @method_decorator(

@@ -179,9 +179,41 @@ def get_not_solved_tasks_qs(
     assigned_flag: Union[bool, None],
     queue_info: str,
 ) -> Tuple[QuerySet[Task], List[int], str, bool]:
-    user_solved_tasks_array = user.annotations.filter(project=project, task__isnull=False)
-    user_solved_tasks_array = user_solved_tasks_array.distinct().values_list('task__pk', flat=True)
-    not_solved_tasks = prepared_tasks.exclude(pk__in=user_solved_tasks_array)
+    user_solved_tasks_qs = user.annotations.filter(project=project, task__isnull=False)
+
+    from tasks.models import TaskAssignment
+    from organizations.models import OrganizationMember
+    from projects.models import Project
+
+    if isinstance(project, int):
+        project = Project.objects.only('id', 'organization_id').filter(pk=project).first()
+    organization_id = getattr(project, 'organization_id', None)
+    om = (
+        OrganizationMember.objects.filter(user=user, organization_id=organization_id).first()
+        if organization_id
+        else None
+    )
+    is_restricted = om and not om.is_owner and om.role in ['annotator', 'reviewer']
+    
+    if is_restricted:
+        if om.role == 'annotator':
+            rejected_task_ids = TaskAssignment.objects.filter(annotator=user, status='rejected').values('task_id')
+            user_solved_tasks_qs = user_solved_tasks_qs.exclude(task__in=rejected_task_ids)
+            not_solved_tasks = prepared_tasks.exclude(pk__in=user_solved_tasks_qs.values('task__pk'))
+            assigned_task_ids = TaskAssignment.objects.filter(annotator=user, status__in=['pending_annotation', 'rejected']).values('task_id')
+            not_solved_tasks = not_solved_tasks.filter(id__in=assigned_task_ids)
+        elif om.role == 'reviewer':
+            pending_review_task_ids = TaskAssignment.objects.filter(reviewer=user, status='pending_review').values('task_id')
+            user_solved_tasks_qs = user_solved_tasks_qs.exclude(task__in=pending_review_task_ids)
+            not_solved_tasks = prepared_tasks.exclude(pk__in=user_solved_tasks_qs.values('task__pk'))
+            not_solved_tasks = not_solved_tasks.filter(id__in=pending_review_task_ids)
+        else:
+            not_solved_tasks = prepared_tasks.exclude(pk__in=user_solved_tasks_qs.values('task__pk'))
+    else:
+        user_solved_tasks_array = user_solved_tasks_qs.distinct().values_list('task__pk', flat=True)
+        not_solved_tasks = prepared_tasks.exclude(pk__in=user_solved_tasks_array)
+        
+    user_solved_tasks_array = user_solved_tasks_qs.distinct().values_list('task__pk', flat=True)
 
     # annotation can't have postponed draft, so skip annotation__project filter
     postponed_drafts = user.drafts.filter(task__project=project, was_postponed=True)

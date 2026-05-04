@@ -72,11 +72,28 @@ class ProjectMixin:
         )
 
     def has_permission(self, user):
-        """
-        Dummy stub for has_permission
-        """
         user.project = self  # link for activity log
-        return True
+        if not getattr(user, 'is_authenticated', False):
+            return False
+        if getattr(user, 'is_superuser', False):
+            return True
+        if not self.organization_id or user.active_organization_id != self.organization_id:
+            return False
+
+        from organizations.models import OrganizationMember
+
+        member = OrganizationMember.objects.filter(
+            user=user,
+            organization_id=self.organization_id,
+            deleted_at__isnull=True,
+        ).first()
+        if not member:
+            return False
+        if member.role == OrganizationMember.ROLE_ADMIN or self.organization.created_by_id == user.id:
+            return True
+        if member.role in {OrganizationMember.ROLE_ANNOTATOR, OrganizationMember.ROLE_REVIEWER}:
+            return self.has_collaborator_enabled(user)
+        return False
 
     def _can_use_overlap(self):
         """

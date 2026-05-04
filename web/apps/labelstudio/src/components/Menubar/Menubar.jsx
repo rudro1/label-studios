@@ -74,6 +74,7 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
   const contentClass = cn("content-wrapper");
   const contextItem = menubarClass.elem("context-item");
   const showNewsletterDot = !isDefined(user?.allow_newsletters);
+  const canViewOrganization = user?.is_superuser || user?.active_organization_role === "admin";
 
   const sidebarPin = useCallback(
     (e) => {
@@ -225,7 +226,9 @@ export const Menubar = ({ enabled, defaultOpened, defaultPinned, children, onSid
               <Menu>
                 {isFF(FF_HOMEPAGE) && <Menu.Item label="Home" to="/" icon={<IconHome />} data-external exact />}
                 <Menu.Item label="Projects" to="/projects" icon={<IconFolder />} data-external exact />
-                <Menu.Item label="Organization" to="/organization" icon={<IconPeople />} data-external exact />
+                {canViewOrganization && (
+                  <Menu.Item label="Organization" to="/organization" icon={<IconPeople />} data-external exact />
+                )}
 
                 <Menu.Spacer />
 

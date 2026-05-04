@@ -1,3 +1,6 @@
+from django.db.models import Q
+
+
 class TaskMixin:
     def has_permission(self, user: 'User') -> bool:  # noqa: F821
         """Called by Task#has_permission"""
@@ -28,7 +31,7 @@ class TaskMixin:
         pass
 
     def get_rejected_query(self):
-        pass
+        return Q(assignments__status='rejected')
 
     def can_be_skipped(self) -> bool:
         return True

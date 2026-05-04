@@ -111,7 +111,9 @@ class ProjectManager(models.Manager):
         return ProjectQuerySetWithFSM(self.model, using=self._db)
 
     def for_user(self, user):
-        # Fixensy: Annotator হলে শুধু assigned projects দেখাবে
+        if getattr(user, 'is_superuser', False):
+            return self.get_queryset()
+
         from organizations.models import OrganizationMember
         try:
             om = OrganizationMember.objects.filter(
@@ -119,23 +121,21 @@ class ProjectManager(models.Manager):
                 organization=user.active_organization,
                 deleted_at__isnull=True
             ).first()
-            is_annotator = (
+            is_restricted = (
                 om is not None and
-                om.role == 'annotator' and
+                om.role in ['annotator', 'reviewer'] and
                 user.id != user.active_organization.created_by_id
             )
         except Exception:
-            is_annotator = False
+            is_restricted = False
 
-        if is_annotator:
-            # শুধু ProjectMember এ assigned projects
+        if is_restricted:
             return self.get_queryset().filter(
                 organization=user.active_organization,
                 members__user=user
             ).distinct()
-        else:
-            # Admin → সব projects
-            return self.get_queryset().filter(organization=user.active_organization)
+
+        return self.get_queryset().filter(organization=user.active_organization)
 
     def with_state(self):
         """

@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 ARG NODE_VERSION=22
+# Lower this (e.g. 1536) if `yarn run build` fails with cannot allocate memory in Docker.
+ARG NODE_MEMORY_MB=2048
 ARG PYTHON_VERSION=3.13
 ARG POETRY_VERSION=2.3.2
 ARG VERSION_OVERRIDE
@@ -17,6 +19,7 @@ ARG BRANCH_OVERRIDE
 
 ################################ Stage: frontend-builder (build frontend assets)
 FROM --platform=${BUILDPLATFORM} node:${NODE_VERSION}-alpine AS frontend-builder
+ARG NODE_MEMORY_MB
 ENV BUILD_NO_SERVER=true \
     BUILD_NO_HASH=true \
     BUILD_NO_CHUNKS=true \
@@ -24,7 +27,8 @@ ENV BUILD_NO_SERVER=true \
     YARN_CACHE_FOLDER=/root/web/.yarn \
     NX_CACHE_DIRECTORY=/root/web/.nx \
     NODE_ENV=production \
-    NODE_OPTIONS="--max-old-space-size=4096"
+    NODE_OPTIONS="--max-old-space-size=${NODE_MEMORY_MB}" \
+    NX_PARALLEL=1
 
 WORKDIR /label-studio/web
 
@@ -42,14 +46,17 @@ RUN apk add --no-cache \
 COPY web/package.json .
 COPY web/yarn.lock .
 COPY web/tools tools
-RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache,sharing=locked \
-    --mount=type=cache,target=/root/web/.nx,id=nx-cache,sharing=locked \
-    yarn install --prefer-offline --no-progress --pure-lockfile --frozen-lockfile --ignore-engines --non-interactive --production=false
+# Do not use --prefer-offline: stale BuildKit yarn cache can leave broken optional deps (e.g. @esbuild/*) and error
+# "Couldn't find a package.json file in .../.yarn/.../integrity/node_modules/...". Bump cache id when that recurs; retry+clean repairs a bad mount once.
+RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache-v4-fixensy,sharing=shared \
+    --mount=type=cache,target=/root/web/.nx,id=nx-cache-v4-fixensy,sharing=shared \
+    sh -c 'yarn install --no-progress --pure-lockfile --frozen-lockfile --ignore-engines --non-interactive --production=false \
+    || (echo "=> yarn install failed; cleaning yarn cache and retrying once" >&2 && yarn cache clean && yarn install --no-progress --pure-lockfile --frozen-lockfile --ignore-engines --non-interactive --production=false)'
 
 COPY web/ .
 COPY pyproject.toml ../pyproject.toml
-RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache,sharing=locked \
-    --mount=type=cache,target=/root/web/.nx,id=nx-cache,sharing=locked \
+RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache-v4-fixensy,sharing=shared \
+    --mount=type=cache,target=/root/web/.nx,id=nx-cache-v4-fixensy,sharing=shared \
     yarn run build
 
 ################################ Stage: frontend-version-generator
@@ -58,28 +65,26 @@ FROM frontend-builder AS frontend-version-generator
 #     --mount=type=cache,target=/root/web/.nx,id=nx-cache,sharing=locked \
 #     --mount=type=bind,source=.git,target=../.git \
 #     yarn version:libs
-RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache,sharing=locked \
-    --mount=type=cache,target=/root/web/.nx,id=nx-cache,sharing=locked \
+RUN --mount=type=cache,target=/root/web/.yarn,id=yarn-cache-v4-fixensy,sharing=shared \
+    --mount=type=cache,target=/root/web/.nx,id=nx-cache-v4-fixensy,sharing=shared \
     yarn version:libs || echo "Skip version generation"
 
 ################################ Stage: venv-builder (prepare the virtualenv)
 FROM python:${PYTHON_VERSION}-slim AS venv-builder
-ARG POETRY_VERSION
+ARG POETRY_VERSION=2.3.2
 ARG PYTHON_VERSION
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=off \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
-    PIP_DEFAULT_TIMEOUT=300 \
+    PIP_DEFAULT_TIMEOUT=600 \
     PIP_CACHE_DIR="/.cache" \
     POETRY_CACHE_DIR="/.poetry-cache" \
-    POETRY_HOME="/opt/poetry" \
     POETRY_VIRTUALENVS_IN_PROJECT=true \
     POETRY_VIRTUALENVS_PREFER_ACTIVE_PYTHON=true \
     POETRY_INSTALLER_PARALLEL=true \
-    POETRY_HTTP_TIMEOUT=300 \
-    PATH="/opt/poetry/bin:$PATH"
+    POETRY_HTTP_TIMEOUT=600
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -88,8 +93,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpcre2-dev \
     && rm -rf /var/lib/apt/lists/*
 
-ADD https://install.python-poetry.org /tmp/install-poetry.py
-RUN python /tmp/install-poetry.py
+# Official install.python-poetry.org often fails in slim images (exit 245); pip is reliable here.
+RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
 WORKDIR /label-studio
 
@@ -173,9 +178,7 @@ COPY --chown=1001:0 --from=frontend-builder           $LS_DIR/web/dist          
 USER 1001
 
 EXPOSE 8080
-ENV PORT=7860
-EXPOSE 7860
 # ENTRYPOINT ["./deploy/docker-entrypoint.sh"]
 # CMD ["label-studio"]
 ENTRYPOINT ["./deploy/docker-entrypoint.sh"]
-CMD ["label-studio", "--port", "7860"]
+CMD ["label-studio", "--port", "8080"]

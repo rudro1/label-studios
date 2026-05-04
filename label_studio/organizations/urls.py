@@ -18,12 +18,19 @@ _api_urlpattens = [
     path('', api.OrganizationListAPI.as_view(), name='organization-list'),
     # organization detail viewset
     path('<int:pk>', api.OrganizationAPI.as_view(), name='organization-detail'),
+    path('<int:pk>/', api.OrganizationAPI.as_view(), name='organization-detail-slash'),
     # organization memberships list viewset
     path('<int:pk>/memberships', api.OrganizationMemberListAPI.as_view(), name='organization-memberships-list'),
+    path('<int:pk>/memberships/', api.OrganizationMemberListAPI.as_view(), name='organization-memberships-list-slash'),
     path(
         '<int:pk>/memberships/<int:user_pk>/',
         api.OrganizationMemberDetailAPI.as_view(),
         name='organization-membership-detail',
+    ),
+    path(
+        '<int:pk>/memberships/<int:user_pk>/suspend/',
+        api.OrganizationMemberSuspendAPI.as_view(),
+        name='organization-membership-suspend',
     ),
 ]
 # TODO: these urlpatterns should be moved in core/urls with include('organizations.urls')
@@ -37,4 +44,9 @@ urlpatterns = [
     # invite
     path('api/invite', api.OrganizationInviteAPI.as_view(), name='organization-invite'),
     path('api/invite/reset-token', api.OrganizationResetTokenAPI.as_view(), name='organization-reset-token'),
+    
+    # Super Admin controls
+    path('api/superadmin/organizations/', api.SuperAdminOrganizationListAPI.as_view(), name='superadmin-organizations'),
+    path('api/superadmin/organizations/<int:pk>/suspend/', api.SuperAdminOrganizationSuspendAPI.as_view(), name='superadmin-organizations-suspend'),
+    path('api/superadmin/maintenance/toggle/', api.SuperAdminMaintenanceToggleAPI.as_view(), name='superadmin-maintenance-toggle'),
 ]

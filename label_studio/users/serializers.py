@@ -13,6 +13,7 @@ class BaseUserSerializer(FlexFieldsModelSerializer):
     initials = serializers.SerializerMethodField(default='?', read_only=True)
     avatar = serializers.SerializerMethodField(read_only=True)
     active_organization_meta = serializers.SerializerMethodField(read_only=True)
+    active_organization_role = serializers.SerializerMethodField(read_only=True)
     last_activity = serializers.DateTimeField(read_only=True, source='last_activity_cached')
 
     def get_avatar(self, instance):
@@ -59,6 +60,21 @@ class BaseUserSerializer(FlexFieldsModelSerializer):
             return True
         return bool(organization_member_for_user.deleted_at)
 
+    def get_active_organization_role(self, instance):
+        org_id = instance.active_organization_id
+        if not org_id or getattr(instance, 'is_superuser', False):
+            return None
+
+        organization_member = instance.om_through.filter(
+            organization_id=org_id,
+            deleted_at__isnull=True,
+        ).first()
+        if not organization_member:
+            return None
+        if organization_member.is_owner:
+            return 'admin'
+        return organization_member.role
+
     def to_representation(self, instance):
         """Returns user with cache, this helps to avoid multiple s3/gcs links resolving for avatars"""
 
@@ -91,8 +107,10 @@ class BaseUserSerializer(FlexFieldsModelSerializer):
             'phone',
             'active_organization',
             'active_organization_meta',
+            'active_organization_role',
             'allow_newsletters',
             'date_joined',
+            'is_superuser',
         )
 
 

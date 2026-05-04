@@ -23,6 +23,8 @@ _api_urlpatterns = [
     ),
     # Agreement endpoint for Summary view
     path('<int:pk>/agreement/', api.TaskAgreementAPI.as_view(), name='task-agreement'),
+    # Fixensy: explicit reviewer rejection
+    path('<int:pk>/reject/', api.TaskRejectAPI.as_view(), name='task-reject'),
 ]
 
 _api_annotations_urlpatterns = [

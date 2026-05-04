@@ -1,20 +1,26 @@
 """This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
 
 import logging
+from urllib.parse import urlencode
 
 from core.permissions import ViewClassPermission, all_permissions
+from django.core.cache import cache
+from django.urls import reverse
 from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from organizations.functions import destroy_organization, destroy_user_in_organization
+from organizations.models import Organization
 from rest_framework import generics, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import action
 from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from users.functions import check_avatar
+from users.invite_tokens import ADMIN_INVITE_MAX_AGE_SECONDS, make_admin_invite_token
 from users.models import User
 from users.serializers import HotkeysSerializer, UserSerializer, UserSerializerUpdate, WhoAmIUserSerializer
 
@@ -179,7 +185,10 @@ class UserAPI(viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'head', 'patch', 'delete']
 
     def get_queryset(self):
-        return User.objects.filter(organizations=self.request.user.active_organization)
+        qs = User.objects.filter(organizations=self.request.user.active_organization)
+        if not self.request.user.is_superuser:
+            qs = qs.exclude(is_superuser=True)
+        return qs
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=['delete', 'post'], permission_required=all_permissions.avatar_any)
@@ -242,7 +251,20 @@ class UserAPI(viewsets.ModelViewSet):
         return result
 
     def destroy(self, request, *args, **kwargs):
-        return super(UserAPI, self).destroy(request, *args, **kwargs)
+        user = self.get_object()
+        org = request.user.active_organization
+
+        if user.id == request.user.id:
+            return Response({'detail': 'Cannot delete yourself'}, status=400)
+        if user.is_superuser:
+            return Response({'detail': 'Super Admin cannot be deleted from tenant scope'}, status=403)
+
+        member = user.om_through.filter(organization=org, deleted_at__isnull=True).first()
+        if member and member.is_owner:
+            return Response({'detail': 'Organization owner must be deleted by Super Admin.'}, status=400)
+
+        destroy_user_in_organization(user, org)
+        return Response({'detail': 'User permanently deleted'}, status=200)
 
 
 @method_decorator(
@@ -418,3 +440,191 @@ class UserHotkeysAPI(APIView):
         except Exception as e:
             logger.error(f'Error updating hotkeys for user {request.user.pk}: {str(e)}')
             return Response({'error': 'Failed to update hotkeys configuration'}, status=500)
+
+class IsSuperAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
+
+
+def _organization_storage_bytes(org):
+    from data_import.models import FileUpload
+
+    total = 0
+    for upload in FileUpload.objects.filter(project__organization=org).only('file'):
+        try:
+            total += upload.file.size
+        except (OSError, ValueError):
+            continue
+    return total
+
+
+def _project_storage_bytes(project):
+    from data_import.models import FileUpload
+
+    total = 0
+    for upload in FileUpload.objects.filter(project=project).only('file'):
+        try:
+            total += upload.file.size
+        except (OSError, ValueError):
+            continue
+    return total
+
+
+class SuperAdminListAPI(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request, *args, **kwargs):
+        orgs = Organization.objects.all().select_related('created_by').prefetch_related('users')
+        data = []
+        for org in orgs:
+            admin_user = org.created_by
+            if not admin_user or admin_user.is_superuser:
+                continue
+            data.append({
+                'id': admin_user.id,
+                'email': admin_user.email,
+                'first_name': admin_user.first_name,
+                'last_name': admin_user.last_name,
+                'organization_id': org.id,
+                'organization_title': org.title,
+                'is_suspended': org.is_suspended,
+                'total_members': org.users.count(),
+                'storage_bytes': _organization_storage_bytes(org),
+            })
+        return Response(data)
+
+
+class SuperAdminAdminDetailAPI(APIView):
+    """Per-admin breakdown for the Super Admin dashboard: team + projects + storage."""
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request, pk, *args, **kwargs):
+        from organizations.models import OrganizationMember
+        from projects.models import Project
+        from tasks.models import Task
+
+        admin_user = User.objects.filter(id=pk, is_superuser=False).first()
+        if not admin_user:
+            return Response({'detail': 'Admin not found'}, status=404)
+        org = Organization.objects.filter(created_by=admin_user).first()
+        if not org:
+            return Response({'detail': 'Organization not found for this admin'}, status=404)
+
+        members = (
+            OrganizationMember.objects
+            .select_related('user')
+            .filter(organization=org, deleted_at__isnull=True)
+            .exclude(user__is_superuser=True)
+        )
+        member_payload = [
+            {
+                'id': m.user_id,
+                'email': m.user.email,
+                'first_name': m.user.first_name,
+                'last_name': m.user.last_name,
+                'role': m.role,
+                'is_owner': m.user_id == org.created_by_id,
+                'is_suspended': m.is_suspended,
+                'last_activity': m.user.last_activity.isoformat() if m.user.last_activity else None,
+            }
+            for m in members
+        ]
+
+        projects = Project.objects.filter(organization=org).only('id', 'title', 'created_at')
+        project_payload = []
+        for project in projects:
+            project_payload.append({
+                'id': project.id,
+                'title': project.title,
+                'created_at': project.created_at.isoformat() if project.created_at else None,
+                'task_count': Task.objects.filter(project=project).count(),
+                'storage_bytes': _project_storage_bytes(project),
+            })
+
+        return Response({
+            'admin': {
+                'id': admin_user.id,
+                'email': admin_user.email,
+                'first_name': admin_user.first_name,
+                'last_name': admin_user.last_name,
+            },
+            'organization': {
+                'id': org.id,
+                'title': org.title,
+                'is_suspended': org.is_suspended,
+                'created_at': org.created_at.isoformat() if org.created_at else None,
+                'storage_bytes': _organization_storage_bytes(org),
+                'total_members': len(member_payload),
+                'total_projects': len(project_payload),
+            },
+            'members': member_payload,
+            'projects': project_payload,
+        })
+
+
+class SuperAdminSuspendAPI(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, pk, *args, **kwargs):
+        org = Organization.objects.filter(created_by_id=pk).first()
+        if not org:
+            return Response({'detail': 'Organization/Admin not found'}, status=404)
+
+        org.is_suspended = not org.is_suspended
+        org.save(update_fields=['is_suspended'])
+        return Response({'is_suspended': org.is_suspended, 'organization_id': org.id})
+
+
+class SuperAdminDeleteAPI(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def delete(self, request, pk, *args, **kwargs):
+        if request.user.id == int(pk):
+            return Response({'detail': 'Cannot delete yourself'}, status=400)
+
+        admin_user = User.objects.filter(id=pk).first()
+        if not admin_user:
+            return Response({'detail': 'User not found'}, status=404)
+
+        org = Organization.objects.filter(created_by=admin_user).first()
+        if org:
+            members = list(org.users.filter(is_superuser=False).distinct())
+            destroy_organization(org)
+            for member in members:
+                if not member.organizations.exists():
+                    member.delete()
+        else:
+            admin_user.delete()
+
+        return Response({'detail': 'Admin permanently deleted'})
+
+
+class MaintenanceModeAPI(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request, *args, **kwargs):
+        from django.conf import settings
+        is_enabled = cache.get('maintenance_mode_enabled', False) or getattr(settings, 'MAINTENANCE_MODE_ENABLED', False)
+        return Response({'enabled': is_enabled})
+
+    def post(self, request, *args, **kwargs):
+        enabled = request.data.get('enabled', False)
+        if isinstance(enabled, str):
+            enabled = enabled.lower() in {'1', 'true', 'yes', 'on'}
+        else:
+            enabled = bool(enabled)
+        cache.set('maintenance_mode_enabled', enabled, None)
+        return Response({'enabled': enabled})
+
+
+class SuperAdminInviteAPI(APIView):
+    permission_classes = [IsSuperAdmin]
+
+    def get(self, request, *args, **kwargs):
+        token = make_admin_invite_token()
+        query = urlencode({'admin_token': token})
+        invite_url = request.build_absolute_uri(f'{reverse("user-signup")}?{query}')
+        return Response({
+            'invite_url': invite_url,
+            'expires_in_seconds': ADMIN_INVITE_MAX_AGE_SECONDS,
+        })

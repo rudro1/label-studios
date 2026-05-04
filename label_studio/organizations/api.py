@@ -6,11 +6,13 @@ from core.feature_flags import flag_set
 from core.mixins import GetParentObjectMixin
 from core.utils.common import load_func
 from django.conf import settings
+from django.core.cache import cache
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils.functional import cached_property
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from organizations.functions import destroy_user_in_organization
 from organizations.models import Organization, OrganizationMember
 from organizations.serializers import (
     OrganizationIdSerializer,
@@ -22,7 +24,7 @@ from organizations.serializers import (
 )
 from projects.models import Project
 from rest_framework import generics, status
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.generics import get_object_or_404
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -191,7 +193,18 @@ class OrganizationMemberListAPI(generics.ListAPIView):
         }
 
     def get_queryset(self):
-        org = generics.get_object_or_404(self.request.user.organizations, pk=self.kwargs[self.lookup_field])
+        # Super Admin can list members of any org
+        if self.request.user.is_superuser:
+            org = generics.get_object_or_404(Organization, pk=self.kwargs[self.lookup_field])
+        else:
+            org = generics.get_object_or_404(self.request.user.organizations, pk=self.kwargs[self.lookup_field])
+
+        # Annotators and reviewers cannot view the org member list
+        if not self.request.user.is_superuser:
+            om = OrganizationMember.objects.filter(user=self.request.user, organization=org).first()
+            if not om or (om.role in ['annotator', 'reviewer'] and not om.is_owner):
+                raise PermissionDenied("You do not have permission to view the organization page.")
+
         if flag_set('fix_backend_dev_3134_exclude_deactivated_users', self.request.user):
             serializer = OrganizationMemberListParamsSerializer(data=self.request.GET)
             serializer.is_valid(raise_exception=True)
@@ -199,12 +212,24 @@ class OrganizationMemberListAPI(generics.ListAPIView):
 
             # return only active users (exclude DISABLED and NOT_ACTIVATED)
             if active:
-                return org.active_members.prefetch_related('user__om_through').order_by('user__username')
+                return (
+                    org.active_members.exclude(user__is_superuser=True)
+                    .prefetch_related('user__om_through')
+                    .order_by('user__username')
+                )
 
             # organization page to show all members
-            return org.members.prefetch_related('user__om_through').order_by('user__username')
+            return (
+                org.members.exclude(user__is_superuser=True)
+                .prefetch_related('user__om_through')
+                .order_by('user__username')
+            )
         else:
-            return org.members.prefetch_related('user__om_through').order_by('user__username')
+            return (
+                org.members.exclude(user__is_superuser=True)
+                .prefetch_related('user__om_through')
+                .order_by('user__username')
+            )
 
     def list(self, request, *args, **kwargs):
         page = self.paginated_members  # Using cached property to avoid multiple queries
@@ -312,9 +337,13 @@ class OrganizationMemberDetailAPI(GetParentObjectMixin, generics.RetrieveDestroy
 
         if member.user_id == request.user.id:
             return Response({'detail': 'User cannot soft delete self'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        if member.user.is_superuser:
+            raise PermissionDenied('Super Admin cannot be removed from tenant organization pages.')
+        if member.is_owner:
+            return Response({'detail': 'Cannot remove the organization owner.'}, status=400)
 
-        member.soft_delete()
-        return Response(status=204)  # 204 No Content is a common HTTP status for successful delete requests
+        destroy_user_in_organization(user, org)
+        return Response({'detail': 'User permanently deleted'}, status=200)
 
 
 @method_decorator(
@@ -352,11 +381,25 @@ class OrganizationAPI(generics.RetrieveUpdateAPIView):
     redirect_route = 'organizations-dashboard'
     redirect_kwarg = 'pk'
 
-    def get(self, request, *args, **kwargs):
-        return super(OrganizationAPI, self).get(request, *args, **kwargs)
+    def get_object(self):
+        obj = super().get_object()
+        # Super Admin can always access org settings
+        if self.request.user.is_superuser:
+            return obj
+        om = OrganizationMember.objects.filter(user=self.request.user, organization=obj).first()
+        if not om or (om.role in ['annotator', 'reviewer'] and not om.is_owner):
+            raise PermissionDenied("You do not have permission to view organization settings.")
+        return obj
 
     def patch(self, request, *args, **kwargs):
-        return super(OrganizationAPI, self).patch(request, *args, **kwargs)
+        # Only Super Admin can promote someone to admin role
+        role = request.data.get('role')
+        if role == OrganizationMember.ROLE_ADMIN and not request.user.is_superuser:
+            raise PermissionDenied("Only Super Admin can assign the Admin role.")
+        return super().patch(request, *args, **kwargs)
+
+    def get(self, request, *args, **kwargs):
+        return super(OrganizationAPI, self).get(request, *args, **kwargs)
 
     @extend_schema(exclude=True)
     def put(self, request, *args, **kwargs):
@@ -383,8 +426,26 @@ class OrganizationInviteAPI(generics.RetrieveAPIView):
     permission_required = all_permissions.organizations_invite
 
     def get(self, request, *args, **kwargs):
+        if getattr(request.user, 'is_superuser', False):
+            from users.invite_tokens import make_admin_invite_token
+            admin_token = make_admin_invite_token()
+            query = f'admin_token={admin_token}'
+            invite_url = request.build_absolute_uri(f'{reverse("user-signup")}?{query}')
+            if hasattr(settings, 'FORCE_SCRIPT_NAME') and settings.FORCE_SCRIPT_NAME:
+                invite_url = invite_url.replace(settings.FORCE_SCRIPT_NAME, '', 1)
+            # return dummy token to pass serializer validation
+            serializer = OrganizationInviteSerializer(data={'invite_url': invite_url, 'token': 'admin-invite-link'})
+            serializer.is_valid()
+            return Response(serializer.data, status=200)
+
         org = request.user.active_organization
-        invite_url = '{}?token={}'.format(reverse('user-signup'), org.token)
+        om = OrganizationMember.objects.filter(user=request.user, organization=org).first()
+        if not om or (om.role in ['annotator', 'reviewer'] and not om.is_owner):
+            raise PermissionDenied("You do not have permission to generate invite links.")
+
+        invite_url = request.build_absolute_uri(
+            '{}?token={}'.format(reverse('user-signup'), org.token)
+        )
         if hasattr(settings, 'FORCE_SCRIPT_NAME') and settings.FORCE_SCRIPT_NAME:
             invite_url = invite_url.replace(settings.FORCE_SCRIPT_NAME, '', 1)
         serializer = OrganizationInviteSerializer(data={'invite_url': invite_url, 'token': org.token})
@@ -412,9 +473,95 @@ class OrganizationResetTokenAPI(APIView):
 
     def post(self, request, *args, **kwargs):
         org = request.user.active_organization
+        om = OrganizationMember.objects.filter(user=request.user, organization=org).first()
+        if not om or (om.role in ['annotator', 'reviewer'] and not om.is_owner):
+            raise PermissionDenied("You do not have permission to reset invite tokens.")
+
         org.reset_token()
         logger.debug(f'New token for organization {org.pk} is {org.token}')
-        invite_url = '{}?token={}'.format(reverse('user-signup'), org.token)
+        invite_url = request.build_absolute_uri(
+            '{}?token={}'.format(reverse('user-signup'), org.token)
+        )
         serializer = OrganizationInviteSerializer(data={'invite_url': invite_url, 'token': org.token})
         serializer.is_valid()
         return Response(serializer.data, status=201)
+
+class OrganizationMemberSuspendAPI(APIView):
+    """Toggle is_suspended on a single organization member. Admin/owner of the org only."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk, user_pk, *args, **kwargs):
+        org = get_object_or_404(Organization, pk=pk)
+
+        if not request.user.is_superuser:
+            requester_member = OrganizationMember.objects.filter(
+                user=request.user, organization=org, deleted_at__isnull=True
+            ).first()
+            if not requester_member or not (requester_member.is_owner or requester_member.role == OrganizationMember.ROLE_ADMIN):
+                raise PermissionDenied('Only organization admins can suspend members.')
+
+        target = get_object_or_404(
+            OrganizationMember.objects.select_related('user'),
+            user_id=user_pk, organization=org, deleted_at__isnull=True,
+        )
+        if target.user_id == request.user.id:
+            return Response({'detail': 'You cannot suspend yourself.'}, status=400)
+        if target.user.is_superuser:
+            raise PermissionDenied('Super Admin cannot be suspended from tenant organization pages.')
+        if target.is_owner:
+            return Response({'detail': 'Cannot suspend the organization owner.'}, status=400)
+
+        target.is_suspended = not target.is_suspended
+        target.save(update_fields=['is_suspended', 'updated_at'])
+        return Response({'user_id': target.user_id, 'is_suspended': target.is_suspended})
+
+
+class SuperAdminOrganizationListAPI(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = OrganizationSerializer
+
+    def get_queryset(self):
+        if not self.request.user.is_superuser:
+            raise PermissionDenied("Only Super Admin can access this endpoint.")
+        return Organization.objects.all().order_by('-id')
+
+
+class SuperAdminOrganizationSuspendAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only Super Admin can access this endpoint.")
+
+        org = get_object_or_404(Organization, pk=pk)
+        action = request.data.get('action')
+
+        if action == 'suspend':
+            org.is_suspended = True
+            org.save(update_fields=['is_suspended'])
+            return Response({"status": "suspended", "org_id": org.pk})
+        elif action == 'unsuspend':
+            org.is_suspended = False
+            org.save(update_fields=['is_suspended'])
+            return Response({"status": "active", "org_id": org.pk})
+
+        raise ValidationError("Invalid action. Use 'suspend' or 'unsuspend'.")
+
+
+class SuperAdminMaintenanceToggleAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only Super Admin can access this endpoint.")
+
+        is_maintenance = cache.get('maintenance_mode_enabled', False)
+
+        if is_maintenance:
+            cache.set('maintenance_mode_enabled', False, timeout=None)
+            status_text = "disabled"
+        else:
+            cache.set('maintenance_mode_enabled', True, timeout=None)
+            status_text = "enabled"
+
+        return Response({"maintenance_mode": status_text})

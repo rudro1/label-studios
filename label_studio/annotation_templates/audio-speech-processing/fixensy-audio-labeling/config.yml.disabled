@@ -1,0 +1,218 @@
+title: Fixensy Audio Labeling
+type: community
+group: Fixensy
+image: /static/templates/automatic-speech-recognition-using-segments.png
+details: |
+  <h1>Fixensy Audio Labeling</h1>
+  <dl><dt>Shortcuts</dt><dd>Select "Create Segment" → drag waveform to create segment · Space=Play · <b>+/-</b>=Zoom In/Out · Scroll=Zoom · Click=Seek smoothly</dd></dl>
+config: |
+  <View style="font-family:Inter,system-ui,sans-serif;min-height:100vh;padding-bottom:60px;">
+    <Style>
+      *,*::before,*::after{box-sizing:border-box}
+      sup,.lsf-choice__hotkey,.lsf-hotkey{display:none!important}
+      .lsf-text-area__add-button{display:none!important}
+
+      /* ── STICKY WAVEFORM BOX ── */
+      .fx-audio-box{
+        position:sticky!important;top:0!important;z-index:100!important;
+        background: var(--background-color, #ffffff)!important;
+        border-bottom: 1px solid var(--border-color, #E9EDF3)!important;
+        padding: 24px!important; /* Generous padding prevents controls from squishing into canvas */
+        margin-bottom:24px!important;
+        transition:all .3s ease!important;
+      }
+
+      /* ── SPEAKER LABELS TOOLBAR (Hidden for auto-creation) ── */
+      .lsf-labels{
+        display:none!important;gap:8px!important;flex-wrap:wrap!important;
+        margin-top:12px!important;padding:0!important;
+      }
+      .lsf-label{
+        border-radius:50px!important;padding:7px 20px!important;
+        font-size:13px!important;font-weight:700!important;letter-spacing:.03em!important;
+        cursor:pointer!important;color:#fff!important;border:2px solid transparent!important;
+        transition:all .25s cubic-bezier(.34,1.56,.64,1)!important;user-select:none!important;
+      }
+      .lsf-label:hover{transform:translateY(-2px)!important;box-shadow:0 6px 18px rgba(0,0,0,.35)!important;filter:brightness(1.12)!important;}
+      .lsf-label_selected{box-shadow:0 0 0 3px rgba(255,255,255,.55),0 4px 14px rgba(0,0,0,.4)!important;transform:translateY(-1px)!important;}
+
+      /* ── SECTION CARDS ── */
+      .fx-card{
+        background: var(--background-color, #ffffff)!important;
+        border:1px solid var(--border-color, #E9EDF3)!important;
+        border-radius:16px!important;padding:24px 20px!important;margin:16px 12px!important;
+        box-shadow:0 4px 20px rgba(0,0,0,.05)!important;
+        transition:all .3s ease!important;
+      }
+
+      /* ── CHOICE BUTTONS — style="background:#HEX" lands on .lsf-choice__item ── */
+      .lsf-choices{display:flex!important;flex-wrap:wrap!important;gap:12px!important;justify-content:center!important;padding:4px 0!important;}
+      .lsf-choices .lsf-choice{display:inline-flex!important;line-height:normal!important;}
+      .lsf-choices .lsf-choice__item{
+        display:inline-flex!important;align-items:center!important;justify-content:center!important;
+        border-radius:12px!important;overflow:hidden!important;cursor:pointer!important;
+        min-width:140px!important;border:2.5px solid transparent!important;
+        transition:all .2s cubic-bezier(.34,1.56,.64,1)!important;user-select:none!important;
+        box-shadow:0 3px 14px rgba(0,0,0,.25)!important;
+      }
+      .lsf-choices .lsf-choice__item:hover{
+        transform:translateY(-2px)!important;filter:brightness(1.15)!important;
+        box-shadow:0 8px 24px rgba(0,0,0,.35)!important;
+      }
+      .lsf-choices .lsf-choice__item:has(.ant-radio-checked),
+      .lsf-choices .lsf-choice__item:has(.ant-checkbox-checked){
+        border-color:rgba(255,255,255,.8)!important;transform:translateY(-1px)!important;
+        box-shadow:0 0 0 3px rgba(255,255,255,.3),0 6px 20px rgba(0,0,0,.35)!important;
+        filter:brightness(1.08)!important;
+      }
+      .lsf-choices .lsf-choice__checkbox.ant-radio-wrapper,
+      .lsf-choices .lsf-choice__checkbox.ant-checkbox-wrapper{
+        padding:13px 28px!important;display:flex!important;align-items:center!important;
+        justify-content:center!important;font-weight:700!important;font-size:14px!important;
+        letter-spacing:.04em!important;width:100%!important;margin:0!important;
+        color:#fff!important;text-shadow:0 1px 4px rgba(0,0,0,.35)!important;
+        background:transparent!important;
+      }
+      .lsf-choices .lsf-choice__checkbox .ant-radio,
+      .lsf-choices .lsf-choice__checkbox .ant-checkbox{display:none!important;}
+
+      /* ── TEXTAREA ── */
+      .lsf-text-area__input{
+        width:100%!important;min-height:100px!important;padding:16px!important;
+        border:1.5px solid #E5E7EB!important;border-radius:12px!important;
+        font-size:14px!important;font-family:inherit!important;resize:vertical!important;
+        background:#F8FAFC!important;color:#1E293B!important;
+        transition:all .2s ease!important;
+        box-shadow:inset 0 2px 4px rgba(0,0,0,.02)!important;
+      }
+      .lsf-text-area__input:focus{
+        outline:none!important;border-color:#6366F1!important;
+        box-shadow:0 0 0 4px rgba(99,102,241,.15)!important;background:#fff!important;
+      }
+
+      /* ── SMOOTH AUDIO CONTROLS AND SEEK ── */
+      .lsf-audio-control { 
+        position: relative!important; 
+        z-index: 9999!important; 
+        margin-top: 16px!important;
+        padding-bottom: 8px!important;
+        transition: all 0.3s ease !important; 
+      }
+      .lsf-audio-tag { scroll-behavior: smooth !important; }
+
+
+      /* ── WHOLE AUDIO INVALID (hide when any segment drawn) ── */
+      body:has(.lsf-outliner__item) .fx-whole-invalid,
+      body:has(.lsf-region-item) .fx-whole-invalid,
+      body:has(.lsf-tree__node:not(.lsf-tree__node_type_view)) .fx-whole-invalid,
+      body:has(canvas) .fx-whole-invalid {
+        /* Optional fallback: might not be perfectly reliable if canvas is always there, so rely on outliner nodes */
+      }
+      body:has(.lsf-outliner__item) .fx-whole-invalid,
+      body:has(.lsf-region-item) .fx-whole-invalid,
+      body:has(.lsf-tree__node:not(.lsf-tree__node_type_view)) .fx-whole-invalid {
+        display:none!important
+      }
+
+      /* ── DARK MODE (targets actual LS attribute: data-color-scheme) ── */
+      html[data-color-scheme="dark"] .fx-audio-box {
+        background:#1E293B!important; border-color:#334155!important; color:#F1F5F9!important;
+      }
+      html[data-color-scheme="dark"] .fx-card {
+        background:#1E293B!important; border-color:#334155!important; color:#F1F5F9!important;
+        box-shadow:0 4px 20px rgba(0,0,0,.4)!important;
+      }
+      html[data-color-scheme="dark"] .lsf-choices .lsf-choice {
+        background:#334155!important; color:#F1F5F9!important; border-color:transparent!important;
+      }
+      html[data-color-scheme="dark"] .lsf-text-area__input {
+        background:#0F172A!important; color:#F1F5F9!important; border-color:#475569!important;
+      }
+      html[data-color-scheme="dark"] .fx-card h3, html[data-color-scheme="dark"] .fx-card span,
+      html[data-color-scheme="dark"] .fx-card div, html[data-color-scheme="dark"] .fx-card label {
+        color:#F1F5F9!important;
+      }
+
+      /* ── LIGHT MODE (explicit) ── */
+      html:not([data-color-scheme="dark"]) .fx-audio-box {
+        background:#ffffff!important; border-color:#E9EDF3!important;
+      }
+      html:not([data-color-scheme="dark"]) .fx-card {
+        background:#ffffff!important; border-color:#E9EDF3!important;
+      }
+    </Style>
+
+    <!-- ══════════════════════════════
+         STICKY WAVEFORM + SEGMENT CREATION
+         Hidden if "Whole Audio Invalid" is selected to prevent new segments
+         ══════════════════════════════ -->
+    <View visibleWhen="choice-unselected" whenTagName="whole_audio_quality" whenChoiceValue="Whole Audio Invalid" className="fx-audio-box">
+      
+      <Audio name="fx_audio" value="$url" zoom="true" hotkey="space" seekPlay="true" speed="true" scroll="true" volume="true"/>
+      <Labels name="fx_labels" toName="fx_audio">
+        <Label value="Create Segment" background="#6366F1" selectedColor="#ffffff"/>
+      </Labels>
+    </View>
+
+    <!-- ══════════════════════════════
+         WHOLE AUDIO INVALID
+         Only shows when NO segment has been drawn yet
+         ══════════════════════════════ -->
+    <View className="fx-whole-invalid" style="background:#0F172A!important;border:1.5px solid rgba(239,68,68,.5)!important;border-radius:16px!important;padding:20px!important;margin:16px 12px!important;">
+      <Header name="h_whole_audio" value="🔇  Whole audio is completely unusable?" style="font-size:13px;font-weight:700;color:#FCA5A5;margin-bottom:14px;display:block;"/>
+      <Choices name="whole_audio_quality" toName="fx_audio" choice="single" showInline="true">
+        <Choice value="Whole Audio Invalid" style="background:#EF4444;"/>
+      </Choices>
+    </View>
+
+    <!-- ══════════════════════════════
+         CLIP STATUS — appears when a segment is selected
+         ══════════════════════════════ -->
+    <View className="fx-card" visibleWhen="region-selected">
+      <Header name="h_cs_label" value="📋  CLIP STATUS" style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#94A3B8;margin-bottom:6px;display:block;"/>
+      <Header name="h_cs_desc" value="Is this segment usable?" style="font-size:14px;color:#475569;margin-bottom:16px;display:block;font-weight:500;"/>
+      <Choices name="quality" toName="fx_audio" choice="single" required="true" showInline="true" perRegion="true">
+        <Choice value="Valid" style="background:#10B981;"/>
+        <Choice value="Invalid" style="background:#EF4444;"/>
+      </Choices>
+    </View>
+
+    <!-- ══════════════════════════════
+         VALID PATH: SPEAKER AND TRANSCRIPTION
+         ══════════════════════════════ -->
+    <View className="fx-card" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Valid" perRegion="true">
+      <Header name="h_sp_label" value="🗣  SPEAKER SELECTION" style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#94A3B8;margin-bottom:16px;display:block;"/>
+      <Choices name="speaker" toName="fx_audio" choice="single" required="true" showInline="true" perRegion="true">
+        <Choice value="Speaker A" style="background:#3B82F6;"/>
+        <Choice value="Speaker B" style="background:#8B5CF6;"/>
+        <Choice value="Speaker C" style="background:#06B6D4;"/>
+      </Choices>
+
+      <Header name="h_tr_label" value="✍  TRANSCRIPTION" style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#94A3B8;margin-bottom:16px;margin-top:28px;display:block;"/>
+      <TextArea name="transcription" toName="fx_audio" placeholder="Type transcription here…" rows="4" editable="true" showSubmitButton="false" perRegion="true" maxSubmissions="1"/>
+    </View>
+
+    <!-- ══════════════════════════════
+         REJECTION REASON — Invalid path
+         ══════════════════════════════ -->
+    <View className="fx-card" style="background:#FEF2F2!important;border-color:#FECDD3!important;" visibleWhen="choice-selected" whenTagName="quality" whenChoiceValue="Invalid" perRegion="true">
+      <Header name="h_rr_label" value="⚠  REASON FOR REJECTION" style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#EF4444;margin-bottom:16px;display:block;"/>
+      <Choices name="invalid_reason" toName="fx_audio" choice="single" showInline="true" perRegion="true">
+        <Choice value="Noise" style="background:#F59E0B;"/>
+        <Choice value="Overlap" style="background:#F97316;"/>
+        <Choice value="Silence" style="background:#64748B;"/>
+        <Choice value="Inaudible" style="background:#8B5CF6;"/>
+        <Choice value="Non-target Language" style="background:#EC4899;"/>
+        <Choice value="Other" style="background:#334155;"/>
+      </Choices>
+    </View>
+
+    <!-- ══════════════════════════════
+         DESCRIBE OTHER REASON
+         ══════════════════════════════ -->
+    <View className="fx-card" style="background:#FFFBEB!important;border:1px solid #FCD34D!important;" visibleWhen="choice-selected" whenTagName="invalid_reason" whenChoiceValue="Other" perRegion="true">
+      <Header name="h_or_label" value="📝  DESCRIBE THE REASON" style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#D97706;margin-bottom:16px;display:block;"/>
+      <TextArea name="other_reason" toName="fx_audio" placeholder="Write your reason here…" rows="3" editable="true" showSubmitButton="false" perRegion="true" maxSubmissions="1"/>
+    </View>
+
+  </View>

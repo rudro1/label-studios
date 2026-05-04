@@ -11,7 +11,8 @@ from django.contrib import auth
 from django.core.files.images import get_image_dimensions
 from django.shortcuts import redirect
 from django.urls import reverse
-from organizations.models import Organization
+from organizations.models import Organization, OrganizationMember
+from users.invite_tokens import get_admin_invite_payload, is_valid_admin_invite_token
 
 
 def hash_upload(instance, filename):
@@ -61,12 +62,40 @@ def save_user(request, next_page, user_form):
     user.username = user.email.split('@')[0]
     user.save()
 
-    if Organization.objects.exists():
-        org = Organization.objects.first()
-        org.add_user(user)
+    admin_token = request.GET.get('admin_token')
+    token = request.GET.get('token')
+    role = request.GET.get('role', OrganizationMember.ROLE_ANNOTATOR)
+    is_admin_invite = is_valid_admin_invite_token(admin_token)
+
+    if is_admin_invite:
+        payload = get_admin_invite_payload(admin_token) or {}
+        org_title = payload.get('organization_title') or f"{user.username}'s Team"
+        org = Organization.create_organization(created_by=user, title=org_title)
+
+        member = org.organizationmember_set.filter(user=user).first()
+        if member:
+            member.role = OrganizationMember.ROLE_ADMIN
+            member.save(update_fields=['role'])
+        user.active_organization = org
+    elif Organization.objects.exists():
+        if token:
+            org = Organization.objects.filter(token=token).first()
+        else:
+            org = Organization.objects.first()
+
+        if org:
+            org.add_user(user)
+            user.active_organization = org
+
+            member = org.organizationmember_set.filter(user=user).first()
+            if member:
+                if role in [OrganizationMember.ROLE_ANNOTATOR, OrganizationMember.ROLE_REVIEWER]:
+                    member.role = role
+                    member.save(update_fields=['role'])
     else:
         org = Organization.create_organization(created_by=user, title='Label Studio')
-    user.active_organization = org
+        user.active_organization = org
+
     user.save(update_fields=['active_organization'])
 
     request.advanced_json = {

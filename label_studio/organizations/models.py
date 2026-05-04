@@ -30,23 +30,11 @@ class OrganizationMember(OrganizationMemberMixin, models.Model):
 
     ROLE_ADMIN = 'admin'
     ROLE_ANNOTATOR = 'annotator'
+    ROLE_REVIEWER = 'reviewer'
     ROLE_CHOICES = [
         (ROLE_ADMIN, 'Admin'),
         (ROLE_ANNOTATOR, 'Annotator'),
-    ]
-
-    role = models.CharField(
-        max_length=20,
-        choices=ROLE_CHOICES,
-        default=ROLE_ANNOTATOR,
-        help_text='Role of the member in the organization',
-    )
-
-    ROLE_ADMIN = 'admin'
-    ROLE_ANNOTATOR = 'annotator'
-    ROLE_CHOICES = [
-        (ROLE_ADMIN, 'Admin'),
-        (ROLE_ANNOTATOR, 'Annotator'),
+        (ROLE_REVIEWER, 'Reviewer'),
     ]
 
     role = models.CharField(
@@ -64,6 +52,11 @@ class OrganizationMember(OrganizationMemberMixin, models.Model):
         db_index=True,
         help_text='Timestamp indicating when the organization member was marked as deleted.  '
         'If NULL, the member is not considered deleted.',
+    )
+
+    is_suspended = models.BooleanField(
+        default=False,
+        help_text='If True, this individual member loses access; the rest of the organization is unaffected.',
     )
 
     # objects = OrganizationMemberQuerySet.as_manager()
@@ -92,12 +85,8 @@ class OrganizationMember(OrganizationMemberMixin, models.Model):
         return self.role == self.ROLE_ANNOTATOR and not self.is_owner
 
     @cached_property
-    def is_admin(self):
-        return self.role == self.ROLE_ADMIN or self.is_owner
-
-    @cached_property
-    def is_annotator(self):
-        return self.role == self.ROLE_ANNOTATOR and not self.is_owner
+    def is_reviewer(self):
+        return self.role == self.ROLE_REVIEWER and not self.is_owner
 
     class Meta:
         ordering = ['pk']
@@ -126,6 +115,7 @@ class Organization(OrganizationMixin, models.Model):
     title = models.CharField(_('organization title'), max_length=1000, null=False)
 
     token = models.CharField(_('token'), max_length=256, default=create_hash, unique=True, null=True, blank=True)
+    is_suspended = models.BooleanField(_('is suspended'), default=False, help_text='If True, all users under this organization lose access to the platform.')
 
     users = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='organizations', through=OrganizationMember)
 
@@ -179,6 +169,9 @@ class Organization(OrganizationMixin, models.Model):
         return self.projects.filter(members__user=user).exists()
 
     def has_permission(self, user):
+        # Super Admin bypasses all organization permission checks
+        if getattr(user, 'is_superuser', False):
+            return True
         return OrganizationMember.objects.filter(user=user, organization=self, deleted_at__isnull=True).exists()
 
     def add_user(self, user):

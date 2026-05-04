@@ -262,3 +262,30 @@ class HumanSignalCspMiddleware(CSPMiddleware):
                 del response['Content-Security-Policy-Report-Only']
             delattr(response, '_override_report_only_csp')
         return response
+
+class MaintenanceModeMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        from django.core.cache import cache
+        from django.http import HttpResponse, HttpResponseForbidden
+        
+        # Check global maintenance mode
+        if cache.get('maintenance_mode_enabled', False) or getattr(settings, 'MAINTENANCE_MODE_ENABLED', False):
+            if not getattr(request.user, 'is_superuser', False):
+                return HttpResponse("Service Unavailable (Maintenance)", status=503)
+                
+        # Check organization-level and member-level suspension
+        if request.user.is_authenticated and not getattr(request.user, 'is_superuser', False):
+            org = getattr(request.user, 'active_organization', None)
+            if org:
+                if org.is_suspended:
+                    return HttpResponseForbidden("Your organization has been suspended. Please contact the administrator.")
+                from organizations.models import OrganizationMember
+                if OrganizationMember.objects.filter(
+                    user_id=request.user.id, organization_id=org.id, is_suspended=True, deleted_at__isnull=True
+                ).exists():
+                    return HttpResponseForbidden("Your account has been suspended. Please contact the administrator.")
+
+        return self.get_response(request)

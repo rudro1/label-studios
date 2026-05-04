@@ -278,11 +278,92 @@ export class LSFWrapper {
       }
 
       this.datamanager.invoke("lsfInit", this, this.lsfInstance);
+
+      this.renderFixensyAssignmentControls();
     } catch (err) {
       console.error("Failed to initialize LabelStudio", settings);
       console.error(err);
     }
   }
+
+  /** Inject Fixensy assignment-aware controls: reviewer reject button + annotator rejection banner. */
+  renderFixensyAssignmentControls = () => {
+    const assignment = this.task?.assignment;
+    if (!assignment) return;
+
+    const root = typeof this.root === "string" ? document.querySelector(this.root) : this.root;
+    const host = root?.parentElement || root;
+    if (!host) return;
+
+    host.querySelectorAll(".fixensy-assignment-bar").forEach((el) => el.remove());
+
+    const currentUserId = window.APP_SETTINGS?.user?.id;
+    const isReviewer = currentUserId && assignment.reviewer_id === currentUserId;
+    const isAnnotator = currentUserId && assignment.annotator_id === currentUserId;
+    const isRejectedForAnnotator = isAnnotator && assignment.status === "rejected" && assignment.rejection_reason;
+    const isPendingReview = isReviewer && assignment.status === "pending_review";
+
+    if (!isRejectedForAnnotator && !isPendingReview) return;
+
+    const bar = document.createElement("div");
+    bar.className = "fixensy-assignment-bar";
+    bar.style.cssText =
+      "padding:10px 16px;margin:0 0 8px;border-radius:6px;font-size:13px;display:flex;align-items:center;gap:12px;";
+
+    if (isRejectedForAnnotator) {
+      bar.style.background = "#FEF2F2";
+      bar.style.border = "1px solid #FCA5A5";
+      bar.style.color = "#7F1D1D";
+      bar.innerHTML = `<strong>Rejected by reviewer:</strong><span style="flex:1">${this._escapeHtml(
+        assignment.rejection_reason,
+      )}</span>`;
+    } else if (isPendingReview) {
+      bar.style.background = "#FFFBEB";
+      bar.style.border = "1px solid #FCD34D";
+      bar.style.color = "#78350F";
+      const label = document.createElement("span");
+      label.style.flex = "1";
+      label.textContent = "Reviewer mode — approve via Submit, or reject with reason.";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Reject with reason";
+      btn.style.cssText =
+        "background:#DC2626;color:#fff;border:none;border-radius:4px;padding:6px 14px;font-weight:600;cursor:pointer;";
+      btn.addEventListener("click", () => this.handleFixensyReject());
+      bar.appendChild(label);
+      bar.appendChild(btn);
+    }
+
+    host.insertBefore(bar, host.firstChild);
+  };
+
+  _escapeHtml = (s) =>
+    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  handleFixensyReject = async () => {
+    const reason = window.prompt("Enter rejection reason (required):");
+    if (!reason || !reason.trim()) return;
+    const trimmed = reason.trim().slice(0, 2000);
+    const result = await this.datamanager.apiCall("rejectTask", { taskID: this.task.id }, { body: { reason: trimmed } });
+    const status = result?.$meta?.status;
+    if (status && status >= 400) {
+      this.datamanager.invoke("toast", {
+        message: result?.detail || "Failed to reject task",
+        type: "error",
+      });
+      return;
+    }
+    this.datamanager.invoke("toast", { message: "Task rejected and returned to annotator", type: "info" });
+    if (this.task) {
+      this.task.assignment = {
+        ...(this.task.assignment || {}),
+        status: result.status,
+        rejection_reason: result.rejection_reason,
+      };
+    }
+    if (this.shouldLoadNext()) this.loadTask();
+    else this.exitStream();
+  };
 
   /** @private */
   async preloadTask() {
@@ -464,6 +545,8 @@ export class LSFWrapper {
     if (isFF(FF_FIT_1304_STRICT_OVERLAP) && this.overlapReached) {
       this.showOverlapReachedMessage();
     }
+
+    this.renderFixensyAssignmentControls();
   }
 
   /**

@@ -1,0 +1,191 @@
+ROOT: /Users/rudro/Downloads/label-studios-develop copy 2
+
+===== PWD =====
+/Users/rudro/Downloads/label-studios-develop copy 2
+
+
+===== TOP LEVEL LS =====
+total 8856
+drwxrwxr-x@  84 rudro  staff     2688 May  2 13:58 .
+drwx------@  66 rudro  staff     2112 May  2 13:17 ..
+-rw-r--r--@   1 rudro  staff    14340 May  1 23:42 .DS_Store
+-rw-rw-r--@   1 rudro  staff       60 Apr 13 11:46 .black
+-rw-rw-r--@   1 rudro  staff      431 Apr 13 11:46 .codespellrc
+drwxrwxr-x@   3 rudro  staff       96 Apr 13 11:46 .cursor
+drwxrwxr-x@   4 rudro  staff      128 Apr 13 11:46 .devcontainer
+-rw-rw-r--@   1 rudro  staff      346 Apr 13 11:46 .dockerignore
+-rw-r--r--@   1 rudro  staff      653 May  1 23:34 .env
+-rw-r--r--@   1 rudro  staff     1306 Apr 26 19:11 .env.example
+drwxr-xr-x   17 rudro  staff      544 May  2 13:58 .git
+-rw-rw-r--@   1 rudro  staff       69 Apr 13 11:46 .gitattributes
+drwxrwxr-x@  13 rudro  staff      416 Apr 13 11:46 .github
+-rw-r--r--@   1 rudro  staff     1202 Apr 26 19:11 .gitignore
+-rw-rw-r--@   1 rudro  staff      270 Apr 13 11:46 .gitleaks.toml
+drwxr-xr-x@   7 rudro  staff      224 Apr 23 10:10 .lsdata
+-rw-rw-r--@   1 rudro  staff      526 Apr 13 11:46 .pre-commit-config.yaml
+-rw-rw-r--@   1 rudro  staff      481 Apr 13 11:46 .pre-commit-dev.yaml
+-rw-rw-r--@   1 rudro  staff    17047 Apr 13 11:46 .pylintrc
+drwxr-xr-x@   9 rudro  staff      288 May  1 00:55 .venv
+drwxr-xr-x@   7 rudro  staff      224 May  2 02:22 .venv_fixensy
+drwxr-xr-x@   3 rudro  staff       96 Apr 17 03:08 .vscode
+-rw-rw-r--@   1 rudro  staff     1407 Apr 13 11:46 CODE_OF_CONDUCT.md
+-rw-rw-r--@   1 rudro  staff    10430 Apr 13 11:46 CONTRIBUTING.md
+-rw-rw-r--@   1 rudro  staff    12070 Apr 13 11:46 DESIGN.md
+-rw-rw-r--@   1 rudro  staff     6419 May  1 23:34 Dockerfile
+-rw-rw-r--@   1 rudro  staff      100 Apr 13 11:46 Dockerfile.cloudrun
+-rw-rw-r--@   1 rudro  staff     5319 Apr 13 11:46 Dockerfile.development
+-rw-rw-r--@   1 rudro  staff      180 Apr 13 11:46 Dockerfile.heroku
+-rw-rw-r--@   1 rudro  staff      309 Apr 13 11:46 Dockerfile.hgface
+-rw-rw-r--@   1 rudro  staff      704 Apr 13 11:46 Dockerfile.testing
+-rw-r--r--@   1 rudro  staff    18598 May  2 00:09 FIXENSY_CODEBASE.md
+-rw-r--r--@   1 rudro  staff    11196 May  2 11:54 FIXENSY_COMPLETION_AUDIT.md
+-rw-r--r--@   1 rudro  staff     8755 May  2 11:55 FIXENSY_CRITICAL_FIXES.md
+-rw-r--r--@   1 rudro  staff     8214 May  2 11:52 FIXENSY_E2E_PROMPT.md
+-rw-r--r--@   1 rudro  staff    10669 May  2 10:41 FIXENSY_MASTER_PROMPT.md
+-rw-r--r--@   1 rudro  staff    11854 May  2 10:05 FIXENSY_PLAN.md
+-rw-r--r--@   1 rudro  staff    11768 May  2 11:38 FIXENSY_STATUS.md
+-rw-rw-r--@   1 rudro  staff    11341 Apr 13 11:46 LICENSE
+-rw-rw-r--@   1 rudro  staff     1059 Apr 13 11:46 MANIFEST.in
+-rw-rw-r--@   1 rudro  staff     3713 Apr 13 11:46 Makefile
+-rw-rw-r--@   1 rudro  staff      199 Apr 13 11:46 NOTICE
+-rw-rw-r--@   1 rudro  staff    11488 Apr 13 11:46 README.md
+-rw-r--r--@   1 rudro  staff     2034 Apr 26 19:11 VPS_INSTALL.md
+-rw-rw-r--@   1 rudro  staff        0 Apr 13 11:46 [production
+drwxr-xr-x  279 rudro  staff     8928 May  2 13:58 _ai_export
+-rw-r--r--    1 rudro  staff     5054 May  2 13:58 ai_export_local.py
+-rw-rw-r--@   1 rudro  staff     1006 Apr 13 11:46 app.json
+-rw-rw-r--@   1 rudro  staff     3800 Apr 13 11:46 azuredeploy.json
+-rw-rw-r--@   1 rudro  staff      283 Apr 13 11:46 azuredeploy.parameters.json
+-rw-r--r--@   1 rudro  staff      311 May  1 23:34 check_paths.py
+-rw-rw-r--@   1 rudro  staff       59 Apr 13 11:46 codecov.yml
+drwxr-xr-x@   7 rudro  staff      224 May  2 02:20 data
+drwxrwxr-x@  16 rudro  staff      512 Apr 26 19:11 deploy
+-rw-r--r--@   1 rudro  staff      339 May  2 03:22 docker-compose.local.yml
+-rw-rw-r--@   1 rudro  staff     1342 Apr 13 11:46 docker-compose.minio.yml
+-rw-rw-r--@   1 rudro  staff      499 Apr 13 11:46 docker-compose.mysql.yml
+-rw-rw-r--@   1 rudro  staff      168 Apr 13 11:46 docker-compose.override.example.yml
+-rw-r--r--@   1 rudro  staff     1679 Apr 26 19:11 docker-compose.yml
+-rw-r--r--    1 rudro  staff     1069 Apr 17 21:35 docker-compose.yml.bak.2026-04-17-112021
+-rw-rw-r--@   1 rudro  staff     1173 Apr 13 11:46 docker-compose.yml.save
+drwxrwxr-x@  18 rudro  staff      576 Apr 17 21:35 docs
+drwxr-xr-x@  10 rudro  staff      320 Apr 23 16:21 export
+-rw-r--r--@   1 rudro  staff     1465 May  1 23:34 fix_auth_setup.py
+drwxr-xr-x@   8 rudro  staff      256 May  1 23:39 fixensy_template_v2
+-rw-rw-r--@   1 rudro  staff       79 Apr 13 11:46 heroku.yml
+drwxrwxr-x@  22 rudro  staff      704 Apr 13 11:46 images
+drwxrwxr-x@  37 rudro  staff     1184 May  2 11:37 label_studio
+-rwxr-xr-x@   1 rudro  staff  2859008 May  2 03:41 label_studio.sqlite3
+drwxrwxr-x@   4 rudro  staff      128 Apr 13 11:46 licenses
+drwxr-xr-x@   7 rudro  staff      224 Apr 29 13:28 ls_local_data
+drwxr-xr-x@   5 rudro  staff      160 Apr 23 15:57 media
+-rw-rw-r--@   1 rudro  staff   397988 Apr 13 11:46 poetry.lock
+drwxrwxr-x@  16 rudro  staff      512 Apr 17 21:35 postgres_data
+drwxrwxr-x@   3 rudro  staff       96 Apr 13 11:46 prometheus
+-rw-rw-r--@   1 rudro  staff     5862 Apr 13 11:46 pyproject.toml
+drwxrwxr-x@   8 rudro  staff      256 Apr 26 19:11 scripts
+-rwxr-xr-x@   1 rudro  staff     1374 May  2 03:50 start_fixensy.sh
+drwxr-xr-x@   2 rudro  staff       64 Apr 23 11:45 test_data
+drwxr-xr-x@   2 rudro  staff       64 Apr 17 02:52 tmp
+drwxrwxr-x@   3 rudro  staff       96 Apr 13 11:46 tools
+-rwxr-xr-x@   1 rudro  staff     2342 Apr 13 11:46 update.sh
+-rw-r--r--@   1 rudro  staff     3076 May  2 03:04 walkthrough.md
+drwxrwxr-x@  31 rudro  staff      992 May  2 00:52 web
+
+
+===== PYTHON VERSION =====
+Python 3.11.7
+
+
+===== GIT CHECK =====
+ M Dockerfile
+ M label_studio/annotation_templates/audio-speech-processing/fixensy-audio-labeling/config.yml
+ M label_studio/core/middleware.py
+ M label_studio/core/settings/base.py
+ M label_studio/core/settings/label_studio.py
+ M label_studio/data_export/api.py
+ M label_studio/data_import/api.py
+ M label_studio/data_import/uploader.py
+ M label_studio/data_manager/actions/__init__.py
+ M label_studio/data_manager/api.py
+ M label_studio/data_manager/functions.py
+ M label_studio/data_manager/serializers.py
+ M label_studio/organizations/api.py
+ M label_studio/organizations/models.py
+ M label_studio/organizations/serializers.py
+ M label_studio/organizations/templates/organizations/people_list.html
+ M label_studio/organizations/urls.py
+ M label_studio/organizations/views.py
+ M label_studio/projects/api.py
+ M label_studio/projects/functions/next_task.py
+ M label_studio/projects/mixins.py
+ M label_studio/projects/models.py
+ M label_studio/projects/urls.py
+ M label_studio/server.py
+ M label_studio/tasks/api.py
+ M label_studio/tasks/models.py
+ M label_studio/tasks/urls.py
+ M label_studio/templates/base.html
+ M label_studio/users/api.py
+ M label_studio/users/functions/common.py
+ M label_studio/users/urls.py
+ M label_studio/users/views.py
+ M web/apps/labelstudio/src/pages/CreateProject/Import/Import.jsx
+ M web/apps/labelstudio/src/pages/Organization/PeoplePage/InviteLink.tsx
+ M web/apps/labelstudio/src/pages/Organization/PeoplePage/PeopleList.jsx
+ M web/apps/labelstudio/src/pages/Organization/PeoplePage/PeoplePage.jsx
+ M web/libs/datamanager/src/sdk/api-config.js
+ M web/libs/datamanager/src/sdk/lsf-sdk.js
+ M web/libs/datamanager/src/stores/DataStores/tasks.js
+ M web/libs/editor/src/lib/AudioUltra/Controls/Player.ts
+ M web/libs/editor/src/lib/AudioUltra/Regions/Regions.ts
+ M web/libs/editor/src/lib/AudioUltra/Visual/Visualizer.ts
+ M web/libs/editor/src/tags/object/Audio/model.js
+ M web/libs/editor/src/tags/object/Audio/view.prefix.css
+ M web/libs/editor/src/tags/object/Audio/view.tsx
+ M web/package.json
+ M web/yarn.lock
+?? FIXENSY_CODEBASE.md
+?? FIXENSY_COMPLETION_AUDIT.md
+?? FIXENSY_CRITICAL_FIXES.md
+?? FIXENSY_E2E_PROMPT.md
+?? FIXENSY_MASTER_PROMPT.md
+?? FIXENSY_PLAN.md
+?? FIXENSY_STATUS.md
+?? _ai_export/
+?? ai_export_local.py
+?? check_paths.py
+?? docker-compose.local.yml
+?? fix_auth_setup.py
+?? fixensy_template_v2/
+?? label_studio/data_manager/actions/assign_tasks.py
+?? label_studio/data_manager/actions/release_tasks.py
+?? label_studio/organizations/migrations/0008_alter_organizationmember_role.py
+?? label_studio/organizations/migrations/0009_organization_is_suspended.py
+?? label_studio/organizations/migrations/0010_organizationmember_is_suspended.py
+?? label_studio/projects/assignment_utils.py
+?? label_studio/setup_test_data.py
+?? label_studio/tasks/migrations/0062_taskassignment.py
+?? label_studio/tasks/migrations/0063_taskassignment_rejection_reason_indexes.py
+?? label_studio/tasks/migrations/0064_taskassignment_completed_at_and_more.py
+?? label_studio/users/invite_tokens.py
+?? label_studio/users/management/
+?? start_fixensy.sh
+?? walkthrough.md
+?? web/package-lock.json
+
+
+===== GIT REMOTE =====
+labelstudios	https://github.com/rudro1/label-studios.git (fetch)
+labelstudios	https://github.com/rudro1/label-studios.git (push)
+origin	https://github.com/rudro1/Fixstudio.git (fetch)
+origin	https://github.com/rudro1/Fixstudio.git (push)
+
+
+===== GIT BRANCH =====
+phase1-template-import-export
+
+
+===== RECENT COMMITS =====
+bf908061 Phase 1: template + link-only import/export + audio validation UX
+790faadb VPS baseline snapshot: audio updates and backup script
+54ce0c86 Initial commit: sync server state

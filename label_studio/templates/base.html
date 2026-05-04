@@ -66,6 +66,30 @@
   {% endblock %}
 
   {% block head %}
+  <style>
+    /* Fixensy Professional Branding Reskin */
+    :root {
+      --primary_color: #6366F1 !important; /* Indigo primary */
+      --button_primary_bg: #6366F1 !important;
+      --button_primary_hover: #4F46E5 !important;
+      --sidebar_bg: #0F172A !important;
+      --sidebar_color: #F8FAFC !important;
+      --menu_bg: #0F172A !important;
+    }
+    body, .app-wrapper, .main { font-family: 'Inter', system-ui, sans-serif !important; }
+
+    /* Sidebar / Header overrides */
+    .ls-menu { background: #0F172A !important; color: #F8FAFC !important; }
+    .ls-menu__item { color: #CBD5E1 !important; }
+    .ls-menu__item_active, .ls-menu__item:hover { background: #1E293B !important; color: #fff !important; }
+
+    /* Primary buttons */
+    .ls-button_look_primary { background-color: #6366F1 !important; border-color: #6366F1 !important; }
+    .ls-button_look_primary:hover { background-color: #4F46E5 !important; border-color: #4F46E5 !important; }
+
+    /* Branding */
+    .ls-menu__header { filter: brightness(1.5); } /* Make default logo brighter on dark bg */
+  </style>
   {% endblock %}
 
   {% get_current_language as LANGUAGE_CODE %}
@@ -164,8 +188,10 @@
       firstName: "{{user.first_name}}",
       lastName: "{{user.last_name}}",
       initials: "{{user.get_initials}}",
-	email: "{{user.email}}",
-	customHotkeys: __customHotkeys,
+		email: "{{user.email}}",
+		customHotkeys: __customHotkeys,
+      is_superuser: {{ user.is_superuser|yesno:"true,false" }},
+      active_organization: {% if user.active_organization_id %}{{ user.active_organization_id }}{% else %}null{% endif %},
 
       allow_newsletters: {% if user.allow_newsletters is None %}null{% else %}{{user.allow_newsletters|yesno:"true,false"}}{% endif %},
       {% if user.avatar %}

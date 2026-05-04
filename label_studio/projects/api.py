@@ -27,6 +27,14 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
 from label_studio_sdk.label_interface.interface import LabelInterface
 from ml.serializers import MLBackendSerializer
+from organizations.models import OrganizationMember
+from projects.assignment_utils import (
+    assign_tasks_to_users,
+    can_manage_assignments,
+    ensure_assignment_manager,
+    filter_tasks_for_user,
+    get_project_role_user,
+)
 from projects.functions.next_task import get_next_task
 from projects.functions.stream_history import get_label_stream_history
 from projects.functions.utils import recalculate_created_annotations_and_labels_from_scratch
@@ -43,7 +51,7 @@ from projects.serializers import (
     ProjectSummarySerializer,
 )
 from rest_framework import filters, generics, status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.exceptions import ValidationError as RestValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -176,32 +184,8 @@ class ProjectListAPI(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
         filter = serializer.validated_data.get('filter')
-        # Fixensy: Annotator হলে শুধু assigned projects
-        from organizations.models import OrganizationMember
         user = self.request.user
-        try:
-            om = OrganizationMember.objects.filter(
-                user=user,
-                organization=user.active_organization,
-                deleted_at__isnull=True
-            ).first()
-            is_annotator = (
-                om is not None and
-                om.role == 'annotator' and
-                user.id != user.active_organization.created_by_id
-            )
-        except Exception:
-            is_annotator = False
-
-        if is_annotator:
-            projects = Project.objects.filter(
-                organization=user.active_organization,
-                members__user=user
-            ).distinct().order_by(
-                F('pinned_at').desc(nulls_last=True), '-created_at'
-            )
-        else:
-            projects = Project.objects.filter(organization=self.request.user.active_organization).order_by(
+        projects = Project.objects.for_user(user).order_by(
             F('pinned_at').desc(nulls_last=True), '-created_at'
         )
         if filter in ['pinned_only', 'exclude_pinned']:
@@ -222,6 +206,9 @@ class ProjectListAPI(generics.ListCreateAPIView):
         return context
 
     def perform_create(self, ser):
+        if not can_manage_assignments(self.request.user, Project(organization=self.request.user.active_organization)):
+            raise PermissionDenied('Only organization admins can create projects.')
+
         try:
             ser.save(organization=self.request.user.active_organization)
         except IntegrityError as e:
@@ -268,9 +255,8 @@ class ProjectCountsListAPI(generics.ListAPIView):
         serializer = GetFieldsSerializer(data=self.request.query_params)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
-        projects = Project.objects.with_counts(fields=fields).filter(
-            organization=self.request.user.active_organization
-        )
+        projects = Project.objects.for_user(self.request.user)
+        projects = ProjectManager.with_counts_annotate(projects, fields=fields)
 
         # Only annotate FSM state for UI/API consumption when both feature flags are enabled
         if flag_set('fflag_feat_fit_568_finite_state_management', user=self.request.user) and flag_set(
@@ -402,9 +388,8 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
         serializer = GetFieldsSerializer(data=self.request.query_params)
         serializer.is_valid(raise_exception=True)
         fields = serializer.validated_data.get('include')
-        projects = Project.objects.with_counts(fields=fields).filter(
-            organization=self.request.user.active_organization
-        )
+        projects = Project.objects.for_user(self.request.user)
+        projects = ProjectManager.with_counts_annotate(projects, fields=fields)
 
         # Only annotate FSM state for UI/API consumption when both feature flags are enabled
         if flag_set('fflag_feat_fit_568_finite_state_management', user=self.request.user) and flag_set(
@@ -419,11 +404,13 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
 
     @api_webhook_for_delete(WebhookAction.PROJECT_DELETED)
     def delete(self, request, *args, **kwargs):
+        ensure_assignment_manager(request.user, self.get_object())
         return super(ProjectAPI, self).delete(request, *args, **kwargs)
 
     @api_webhook(WebhookAction.PROJECT_UPDATED)
     def patch(self, request, *args, **kwargs):
         project = self.get_object()
+        ensure_assignment_manager(request.user, project)
         label_config = self.request.data.get('label_config')
 
         # config changes can break view, so we need to reset them
@@ -434,6 +421,11 @@ class ProjectAPI(generics.RetrieveUpdateDestroyAPIView):
                 pass
 
         return super(ProjectAPI, self).patch(request, *args, **kwargs)
+
+    @api_webhook(WebhookAction.PROJECT_UPDATED)
+    def put(self, request, *args, **kwargs):
+        ensure_assignment_manager(request.user, self.get_object())
+        return super(ProjectAPI, self).put(request, *args, **kwargs)
 
     def perform_destroy(self, instance):
         # we don't need to relaculate counters if we delete whole project
@@ -765,8 +757,9 @@ class ProjectTaskListAPI(GetParentObjectMixin, generics.ListCreateAPIView, gener
 
     def filter_queryset(self, queryset):
         project = generics.get_object_or_404(Project.objects.for_user(self.request.user), pk=self.kwargs.get('pk', 0))
-        # ordering is deprecated here
-        tasks = Task.objects.filter(project=project).order_by('-updated_at')
+        tasks = filter_tasks_for_user(Task.objects.filter(project=project), self.request.user, project).order_by(
+            '-updated_at'
+        )
         page = paginator(tasks, self.request)
         if page:
             return page
@@ -775,6 +768,7 @@ class ProjectTaskListAPI(GetParentObjectMixin, generics.ListCreateAPIView, gener
 
     def delete(self, request, *args, **kwargs):
         project = generics.get_object_or_404(Project.objects.for_user(self.request.user), pk=self.kwargs['pk'])
+        ensure_assignment_manager(request.user, project)
         task_ids = list(Task.objects.filter(project=project).values('id'))
         Task.delete_tasks_without_signals(Task.objects.filter(project=project))
         logger.info(f'calling reset project_id={project.id} ProjectTaskListAPI.delete()')
@@ -787,6 +781,8 @@ class ProjectTaskListAPI(GetParentObjectMixin, generics.ListCreateAPIView, gener
 
     @extend_schema(exclude=True)
     def post(self, *args, **kwargs):
+        project = generics.get_object_or_404(Project.objects.for_user(self.request.user), pk=self.kwargs['pk'])
+        ensure_assignment_manager(self.request.user, project)
         return super(ProjectTaskListAPI, self).post(*args, **kwargs)
 
     def get_serializer_context(self):
@@ -949,3 +945,39 @@ class ProjectAnnotatorsAPI(generics.RetrieveAPIView):
         users = User.objects.filter(id__in=annotator_ids).prefetch_related('om_through').order_by('id')
         data = UserSimpleSerializer(users, many=True, context={'request': request}).data
         return Response(data)
+
+@method_decorator(
+    name='post',
+    decorator=extend_schema(
+        tags=['Projects'],
+        summary='Assign tasks to annotator and reviewer',
+        description='Assign specific tasks to an annotator and an optional reviewer.',
+    ),
+)
+class ProjectAssignTasksAPI(generics.GenericAPIView):
+    permission_required = all_permissions.projects_change
+
+    def post(self, request, pk):
+        project = generics.get_object_or_404(Project, pk=pk)
+        ensure_assignment_manager(request.user, project)
+
+        task_ids = request.data.get('task_ids', [])
+        annotator_id = request.data.get('annotator_id')
+        reviewer_id = request.data.get('reviewer_id')
+
+        if not task_ids or not annotator_id:
+            return Response({"error": "task_ids and annotator_id are required."}, status=400)
+
+        annotator = get_project_role_user(project, annotator_id, OrganizationMember.ROLE_ANNOTATOR)
+        reviewer = (
+            get_project_role_user(project, reviewer_id, OrganizationMember.ROLE_REVIEWER)
+            if reviewer_id else None
+        )
+
+        tasks = Task.objects.filter(project=project, id__in=task_ids)
+        if not tasks.exists():
+            raise PermissionDenied('No matching tasks found in this project.')
+
+        assignments = assign_tasks_to_users(project, tasks, annotator, reviewer)
+
+        return Response({"status": "success", "assigned_count": len(assignments)})

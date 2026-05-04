@@ -82,6 +82,12 @@ export const APIConfig = {
       method: "post",
     },
 
+    /** Fixensy: explicit reviewer rejection */
+    rejectTask: {
+      path: "/../tasks/:taskID/reject/",
+      method: "post",
+    },
+
     /** Update annotation */
     updateAnnotation: {
       path: "/../annotations/:annotationID",

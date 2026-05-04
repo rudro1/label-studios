@@ -17,6 +17,7 @@ from organizations.models import Organization
 from rest_framework.authtoken.models import Token
 from users import forms
 from users.functions import login, proceed_registration
+from users.invite_tokens import is_valid_admin_invite_token
 
 logger = logging.getLogger()
 
@@ -42,6 +43,8 @@ def user_signup(request):
     user = request.user
     next_page = request.GET.get('next')
     token = request.GET.get('token')
+    admin_token = request.GET.get('admin_token') or ''
+    invite_role = request.GET.get('role') or ''
 
     # checks if the URL is a safe redirection.
     if not next_page or not url_has_allowed_host_and_scheme(url=next_page, allowed_hosts=request.get_host()):
@@ -58,13 +61,17 @@ def user_signup(request):
 
     # make a new user
     if request.method == 'POST':
-        organization = Organization.objects.first()
-        if settings.DISABLE_SIGNUP_WITHOUT_LINK is True:
-            if not (token and organization and token == organization.token):
-                raise PermissionDenied()
-        else:
-            if token and organization and token != organization.token:
-                raise PermissionDenied()
+        admin_token = request.GET.get('admin_token')
+        invited_organization = Organization.objects.filter(token=token).first() if token else None
+        is_admin_invite = is_valid_admin_invite_token(admin_token)
+
+        if not is_admin_invite:
+            if settings.DISABLE_SIGNUP_WITHOUT_LINK is True:
+                if not invited_organization:
+                    raise PermissionDenied()
+            else:
+                if token and not invited_organization:
+                    raise PermissionDenied()
 
         user_form = forms.UserSignupForm(request.POST)
         organization_form = OrganizationSignupForm(request.POST)
@@ -83,6 +90,8 @@ def user_signup(request):
                 'organization_form': organization_form,
                 'next': quote(next_page),
                 'token': token,
+                'admin_token': admin_token,
+                'invite_role': invite_role,
                 'found_us_options': forms.FOUND_US_OPTIONS,
                 'elaborate': forms.FOUND_US_ELABORATE,
             },
@@ -96,6 +105,8 @@ def user_signup(request):
             'organization_form': organization_form,
             'next': quote(next_page),
             'token': token,
+            'admin_token': admin_token,
+            'invite_role': invite_role,
         },
     )
 

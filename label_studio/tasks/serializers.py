@@ -202,7 +202,7 @@ class AnnotationSerializer(FlexFieldsModelSerializer):
 
     class Meta:
         model = Annotation
-        exclude = ['prediction', 'result_count']
+        exclude = ['prediction', 'result_count', 'parent_reviewer', 'reject_reason', 'review_state']
         expandable_fields = {'completed_by': (CompletedByDMSerializer,)}
 
 

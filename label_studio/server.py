@@ -26,7 +26,8 @@ from label_studio.core.utils.params import get_env
 logger = logging.getLogger(__name__)
 
 LS_PATH = str(pathlib.Path(__file__).parent.absolute())
-DEFAULT_USERNAME = 'default_user@localhost'
+DEFAULT_USERNAME = get_env('USERNAME', 'admin@example.com')
+DEFAULT_PASSWORD = get_env('PASSWORD')
 
 
 def _setup_env():
@@ -148,6 +149,9 @@ def _create_user(input_args, config):
         username = input('Email: ')
         if not username:
             username = DEFAULT_USERNAME
+
+    if not password and username == DEFAULT_USERNAME:
+        password = DEFAULT_PASSWORD
 
     if not password and not input_args.quiet_mode:
         password = getpass.getpass(f'User password for {username}: ')

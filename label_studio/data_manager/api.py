@@ -340,7 +340,32 @@ class TaskListAPI(generics.ListCreateAPIView):
         }
 
     def get_task_queryset(self, request, prepare_params):
-        return Task.prepared.only_filtered(prepare_params=prepare_params)
+        qs = Task.prepared.only_filtered(prepare_params=prepare_params)
+        user = request.user
+        project = prepare_params.project
+        if isinstance(project, int):
+            project = Project.objects.only('id', 'organization_id').filter(pk=project).first()
+            if project is None:
+                return qs.none()
+
+        from organizations.models import OrganizationMember
+        om = OrganizationMember.objects.filter(user=user, organization_id=project.organization_id).first()
+        is_restricted = om and not om.is_owner and om.role in ['annotator', 'reviewer']
+
+        if is_restricted:
+            from tasks.models import TaskAssignment
+            if om.role == 'annotator':
+                assigned_task_ids = TaskAssignment.objects.filter(
+                    annotator=user, status__in=['pending_annotation', 'rejected']
+                ).values('task_id')
+                qs = qs.filter(id__in=assigned_task_ids)
+            elif om.role == 'reviewer':
+                assigned_task_ids = TaskAssignment.objects.filter(
+                    reviewer=user, status='pending_review'
+                ).values('task_id')
+                qs = qs.filter(id__in=assigned_task_ids)
+
+        return qs
 
     @staticmethod
     def prefetch(queryset):

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 class DataManagerAction(TypedDict):
     entry_point: Callable
     permission: Union[str, list[str]]
+    permission_check: Optional[Callable]
     title: str
     order: int
     experimental: Optional[bool]
@@ -46,6 +47,10 @@ def check_action_permission(user, action, project):
     for permission in permissions:
         if not user.has_perm(permission):
             return False
+
+    permission_check = action.get('permission_check')
+    if callable(permission_check):
+        return bool(permission_check(user, project))
     return True
 
 
@@ -62,7 +67,7 @@ def get_all_actions(user, project):
 
     check_permission = load_func(settings.DATA_MANAGER_CHECK_ACTION_PERMISSION)
     actions = [
-        {key: action[key] for key in action if key != 'entry_point'}
+        {key: action[key] for key in action if key not in {'entry_point', 'permission_check'}}
         for action in actions
         if not action.get('hidden', False) and check_permission(user, action, project)
     ]

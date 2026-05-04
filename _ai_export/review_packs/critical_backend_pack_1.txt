@@ -1,0 +1,965 @@
+===== label_studio/organizations/models.py lines 90-210 =====
+    90	
+    91	    class Meta:
+    92	        ordering = ['pk']
+    93	
+    94	    def soft_delete(self):
+    95	        with transaction.atomic():
+    96	            self.deleted_at = timezone.now()
+    97	            self.save(update_fields=['deleted_at'])
+    98	            self.user.active_organization = self.user.organizations.filter(
+    99	                organizationmember__deleted_at__isnull=True
+   100	            ).first()
+   101	            if self.user.avatar:
+   102	                self.user.avatar.delete(save=False)
+   103	                self.user.avatar = None
+   104	            self.user.save(update_fields=['active_organization', 'avatar'])
+   105	
+   106	        self.user.task_locks.all().delete()
+   107	
+   108	
+   109	OrganizationMixin = load_func(settings.ORGANIZATION_MIXIN)
+   110	
+   111	
+   112	class Organization(OrganizationMixin, models.Model):
+   113	    """ """
+   114	
+   115	    title = models.CharField(_('organization title'), max_length=1000, null=False)
+   116	
+   117	    token = models.CharField(_('token'), max_length=256, default=create_hash, unique=True, null=True, blank=True)
+   118	    is_suspended = models.BooleanField(_('is suspended'), default=False, help_text='If True, all users under this organization lose access to the platform.')
+   119	
+   120	    users = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='organizations', through=OrganizationMember)
+   121	
+   122	    created_by = models.OneToOneField(
+   123	        settings.AUTH_USER_MODEL,
+   124	        on_delete=models.SET_NULL,
+   125	        null=True,
+   126	        related_name='organization',
+   127	        verbose_name=_('created_by'),
+   128	    )
+   129	
+   130	    created_at = models.DateTimeField(_('created at'), auto_now_add=True)
+   131	    updated_at = models.DateTimeField(_('updated at'), auto_now=True)
+   132	
+   133	    contact_info = models.EmailField(_('contact info'), blank=True, null=True)
+   134	
+   135	    def __str__(self):
+   136	        return self.title + ', id=' + str(self.pk)
+   137	
+   138	    @classmethod
+   139	    def create_organization(cls, created_by=None, title='Your Organization', **kwargs):
+   140	        _create_organization = load_func(settings.CREATE_ORGANIZATION)
+   141	        return _create_organization(title=title, created_by=created_by, **kwargs)
+   142	
+   143	    @classmethod
+   144	    def find_by_user(cls, user, check_deleted=False):
+   145	        memberships = OrganizationMember.objects.filter(user=user).prefetch_related('organization')
+   146	        if not memberships.exists():
+   147	            raise ValueError(f'No memberships found for user {user}')
+   148	        membership = memberships.first()
+   149	        if check_deleted:
+   150	            return (membership.organization, True) if membership.deleted_at else (membership.organization, False)
+   151	
+   152	        return membership.organization
+   153	
+   154	    @classmethod
+   155	    def find_by_invite_url(cls, url):
+   156	        token = url.strip('/').split('/')[-1]
+   157	        if len(token):
+   158	            return Organization.objects.get(token=token)
+   159	        else:
+   160	            raise KeyError(f"Can't find Organization by welcome URL: {url}")
+   161	
+   162	    def has_user(self, user):
+   163	        return self.users.filter(pk=user.pk).exists()
+   164	
+   165	    def has_deleted(self, user):
+   166	        return OrganizationMember.objects.filter(user=user, organization=self, deleted_at__isnull=False).exists()
+   167	
+   168	    def has_project_member(self, user):
+   169	        return self.projects.filter(members__user=user).exists()
+   170	
+   171	    def has_permission(self, user):
+   172	        # Super Admin bypasses all organization permission checks
+   173	        if getattr(user, 'is_superuser', False):
+   174	            return True
+   175	        return OrganizationMember.objects.filter(user=user, organization=self, deleted_at__isnull=True).exists()
+   176	
+   177	    def add_user(self, user):
+   178	        if self.users.filter(pk=user.pk).exists():
+   179	            logger.debug('User already exists in organization.')
+   180	            return
+   181	
+   182	        with transaction.atomic():
+   183	            om = OrganizationMember(user=user, organization=self)
+   184	            om.save()
+   185	
+   186	            return om
+   187	
+   188	    def remove_user(self, user):
+   189	        OrganizationMember.objects.filter(user=user, organization=self).delete()
+   190	        if user.active_organization_id == self.id:
+   191	            user.active_organization = user.organizations.filter(organizationmember__deleted_at__isnull=True).first()
+   192	            user.save(update_fields=['active_organization'])
+   193	
+   194	    def reset_token(self):
+   195	        self.token = create_hash()
+   196	        self.save(update_fields=['token'])
+   197	
+   198	    def check_max_projects(self):
+   199	        """This check raise an exception if the projects limit is hit"""
+   200	        pass
+   201	
+   202	    def projects_sorted_by_created_at(self):
+   203	        return (
+   204	            self.projects.all()
+   205	            .order_by('-created_at')
+   206	            .annotate(tasks_count=Count('tasks'), labeled_tasks_count=Count('tasks', filter=Q(tasks__is_labeled=True)))
+   207	            .prefetch_related('created_by')
+   208	        )
+   209	
+   210	    def created_at_prettify(self):
+
+===== label_studio/organizations/api.py lines 1-180 =====
+     1	"""This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
+     2	
+     3	import logging
+     4	
+     5	from core.feature_flags import flag_set
+     6	from core.mixins import GetParentObjectMixin
+     7	from core.utils.common import load_func
+     8	from django.conf import settings
+     9	from django.core.cache import cache
+    10	from django.urls import reverse
+    11	from django.utils.decorators import method_decorator
+    12	from django.utils.functional import cached_property
+    13	from drf_spectacular.types import OpenApiTypes
+    14	from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+    15	from organizations.models import Organization, OrganizationMember
+    16	from organizations.serializers import (
+    17	    OrganizationIdSerializer,
+    18	    OrganizationInviteSerializer,
+    19	    OrganizationMemberListParamsSerializer,
+    20	    OrganizationMemberListSerializer,
+    21	    OrganizationMemberSerializer,
+    22	    OrganizationSerializer,
+    23	)
+    24	from projects.models import Project
+    25	from rest_framework import generics, status
+    26	from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+    27	from rest_framework.generics import get_object_or_404
+    28	from rest_framework.pagination import PageNumberPagination
+    29	from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+    30	from rest_framework.permissions import IsAuthenticated
+    31	from rest_framework.response import Response
+    32	from rest_framework.settings import api_settings
+    33	from rest_framework.views import APIView
+    34	from tasks.models import Annotation
+    35	from users.models import User
+    36	
+    37	from label_studio.core.permissions import ViewClassPermission, all_permissions
+    38	from label_studio.core.utils.params import bool_from_request
+    39	
+    40	logger = logging.getLogger(__name__)
+    41	
+    42	HasObjectPermission = load_func(settings.MEMBER_PERM)
+    43	
+    44	
+    45	@method_decorator(
+    46	    name='get',
+    47	    decorator=extend_schema(
+    48	        tags=['Organizations'],
+    49	        summary='List your organizations',
+    50	        description="""
+    51	        Return a list of the organizations you've created or that you have access to.
+    52	        """,
+    53	        extensions={
+    54	            'x-fern-sdk-group-name': 'organizations',
+    55	            'x-fern-sdk-method-name': 'list',
+    56	            'x-fern-audiences': ['public'],
+    57	        },
+    58	    ),
+    59	)
+    60	class OrganizationListAPI(generics.ListCreateAPIView):
+    61	    queryset = Organization.objects.all()
+    62	    parser_classes = (JSONParser, FormParser, MultiPartParser)
+    63	    permission_required = ViewClassPermission(
+    64	        GET=all_permissions.organizations_view,
+    65	        PUT=all_permissions.organizations_change,
+    66	        POST=all_permissions.organizations_create,
+    67	        PATCH=all_permissions.organizations_change,
+    68	        DELETE=all_permissions.organizations_change,
+    69	    )
+    70	    serializer_class = OrganizationIdSerializer
+    71	
+    72	    def filter_queryset(self, queryset):
+    73	        return queryset.filter(
+    74	            organizationmember__in=self.request.user.om_through.filter(deleted_at__isnull=True)
+    75	        ).distinct()
+    76	
+    77	    def get(self, request, *args, **kwargs):
+    78	        return super(OrganizationListAPI, self).get(request, *args, **kwargs)
+    79	
+    80	    @extend_schema(exclude=True)
+    81	    def post(self, request, *args, **kwargs):
+    82	        return super(OrganizationListAPI, self).post(request, *args, **kwargs)
+    83	
+    84	
+    85	class OrganizationMemberListPagination(PageNumberPagination):
+    86	    page_size = 20
+    87	    page_size_query_param = 'page_size'
+    88	
+    89	    def get_page_size(self, request):
+    90	        # emulate "unlimited" page_size
+    91	        if (
+    92	            self.page_size_query_param in request.query_params
+    93	            and request.query_params[self.page_size_query_param] == '-1'
+    94	        ):
+    95	            return 1000000
+    96	        return super().get_page_size(request)
+    97	
+    98	
+    99	@method_decorator(
+   100	    name='get',
+   101	    decorator=extend_schema(
+   102	        tags=['Organizations'],
+   103	        summary='Get organization members list',
+   104	        description='Retrieve a list of the organization members and their IDs.',
+   105	        parameters=[
+   106	            OpenApiParameter(
+   107	                name='contributed_to_projects',
+   108	                type=OpenApiTypes.BOOL,
+   109	                location='query',
+   110	                description='Whether to include projects created and contributed to by the members.',
+   111	            ),
+   112	        ],
+   113	        extensions={
+   114	            'x-fern-sdk-group-name': ['organizations', 'members'],
+   115	            'x-fern-sdk-method-name': 'list',
+   116	            'x-fern-audiences': ['public'],
+   117	            'x-fern-pagination': {
+   118	                'offset': '$request.page',
+   119	                'results': '$response.results',
+   120	            },
+   121	        },
+   122	    ),
+   123	)
+   124	class OrganizationMemberListAPI(generics.ListAPIView):
+   125	    parser_classes = (JSONParser, FormParser, MultiPartParser)
+   126	    permission_required = ViewClassPermission(
+   127	        GET=all_permissions.organizations_view,
+   128	        PUT=all_permissions.organizations_change,
+   129	        PATCH=all_permissions.organizations_change,
+   130	        DELETE=all_permissions.organizations_change,
+   131	    )
+   132	    serializer_class = OrganizationMemberListSerializer
+   133	    pagination_class = OrganizationMemberListPagination
+   134	
+   135	    @cached_property
+   136	    def paginated_members(self):
+   137	        return self.paginate_queryset(self.filter_queryset(self.get_queryset()))
+   138	
+   139	    def _get_created_projects_map(self):
+   140	        members = self.paginated_members
+   141	        user_ids = [member.user_id for member in members]
+   142	        projects = (
+   143	            Project.objects.filter(created_by_id__in=user_ids, organization=self.request.user.active_organization)
+   144	            .values('created_by_id', 'id', 'title')
+   145	            .distinct()
+   146	        )
+   147	        projects_map = {}
+   148	        for project in projects:
+   149	            projects_map.setdefault(project['created_by_id'], []).append(
+   150	                {
+   151	                    'id': project['id'],
+   152	                    'title': project['title'],
+   153	                }
+   154	            )
+   155	        return projects_map
+   156	
+   157	    def _get_contributed_to_projects_map(self):
+   158	        members = self.paginated_members
+   159	        user_ids = [member.user_id for member in members]
+   160	        org_project_ids = Project.objects.filter(organization=self.request.user.active_organization).values_list(
+   161	            'id', flat=True
+   162	        )
+   163	        annotations = (
+   164	            Annotation.objects.filter(completed_by__in=list(user_ids), project__in=list(org_project_ids))
+   165	            .values('completed_by', 'project_id')
+   166	            .distinct()
+   167	        )
+   168	        project_ids = [annotation['project_id'] for annotation in annotations]
+   169	        projects_map = Project.objects.in_bulk(id_list=project_ids, field_name='id')
+   170	
+   171	        contributed_to_projects_map = {}
+   172	        for annotation in annotations:
+   173	            project = projects_map[annotation['project_id']]
+   174	            contributed_to_projects_map.setdefault(annotation['completed_by'], []).append(
+   175	                {
+   176	                    'id': project.id,
+   177	                    'title': project.title,
+   178	                }
+   179	            )
+   180	        return contributed_to_projects_map
+
+===== label_studio/organizations/api.py lines 360-540 =====
+   360	    queryset = Organization.objects.all()
+   361	    permission_required = all_permissions.organizations_change
+   362	    serializer_class = OrganizationSerializer
+   363	
+   364	    redirect_route = 'organizations-dashboard'
+   365	    redirect_kwarg = 'pk'
+   366	
+   367	    def get_object(self):
+   368	        obj = super().get_object()
+   369	        # Super Admin can always access org settings
+   370	        if self.request.user.is_superuser:
+   371	            return obj
+   372	        om = OrganizationMember.objects.filter(user=self.request.user, organization=obj).first()
+   373	        if not om or (om.role in ['annotator', 'reviewer'] and not om.is_owner):
+   374	            raise PermissionDenied("You do not have permission to view organization settings.")
+   375	        return obj
+   376	
+   377	    def patch(self, request, *args, **kwargs):
+   378	        # Only Super Admin can promote someone to admin role
+   379	        role = request.data.get('role')
+   380	        if role == OrganizationMember.ROLE_ADMIN and not request.user.is_superuser:
+   381	            raise PermissionDenied("Only Super Admin can assign the Admin role.")
+   382	        return super().patch(request, *args, **kwargs)
+   383	
+   384	    def get(self, request, *args, **kwargs):
+   385	        return super(OrganizationAPI, self).get(request, *args, **kwargs)
+   386	
+   387	    @extend_schema(exclude=True)
+   388	    def put(self, request, *args, **kwargs):
+   389	        return super(OrganizationAPI, self).put(request, *args, **kwargs)
+   390	
+   391	
+   392	@method_decorator(
+   393	    name='get',
+   394	    decorator=extend_schema(
+   395	        tags=['Invites'],
+   396	        summary='Get organization invite link',
+   397	        description='Get a link to use to invite a new member to an organization in Label Studio Enterprise.',
+   398	        responses={200: OrganizationInviteSerializer()},
+   399	        extensions={
+   400	            'x-fern-sdk-group-name': 'organizations',
+   401	            'x-fern-sdk-method-name': 'get_invite',
+   402	            'x-fern-audiences': ['public'],
+   403	        },
+   404	    ),
+   405	)
+   406	class OrganizationInviteAPI(generics.RetrieveAPIView):
+   407	    parser_classes = (JSONParser,)
+   408	    queryset = Organization.objects.all()
+   409	    permission_required = all_permissions.organizations_invite
+   410	
+   411	    def get(self, request, *args, **kwargs):
+   412	        if getattr(request.user, 'is_superuser', False):
+   413	            from users.invite_tokens import make_admin_invite_token
+   414	            org = request.user.active_organization
+   415	            admin_token = make_admin_invite_token(org.id) if org else make_admin_invite_token()
+   416	            query = f'admin_token={admin_token}'
+   417	            if org and org.token:
+   418	                query += f'&token={org.token}'
+   419	            invite_url = request.build_absolute_uri(f'{reverse("user-signup")}?{query}')
+   420	            if hasattr(settings, 'FORCE_SCRIPT_NAME') and settings.FORCE_SCRIPT_NAME:
+   421	                invite_url = invite_url.replace(settings.FORCE_SCRIPT_NAME, '', 1)
+   422	            # return dummy token to pass serializer validation
+   423	            serializer = OrganizationInviteSerializer(data={'invite_url': invite_url, 'token': 'admin-invite-link'})
+   424	            serializer.is_valid()
+   425	            return Response(serializer.data, status=200)
+   426	
+   427	        org = request.user.active_organization
+   428	        om = OrganizationMember.objects.filter(user=request.user, organization=org).first()
+   429	        if not om or (om.role in ['annotator', 'reviewer'] and not om.is_owner):
+   430	            raise PermissionDenied("You do not have permission to generate invite links.")
+   431	
+   432	        invite_url = request.build_absolute_uri(
+   433	            '{}?token={}'.format(reverse('user-signup'), org.token)
+   434	        )
+   435	        if hasattr(settings, 'FORCE_SCRIPT_NAME') and settings.FORCE_SCRIPT_NAME:
+   436	            invite_url = invite_url.replace(settings.FORCE_SCRIPT_NAME, '', 1)
+   437	        serializer = OrganizationInviteSerializer(data={'invite_url': invite_url, 'token': org.token})
+   438	        serializer.is_valid()
+   439	        return Response(serializer.data, status=200)
+   440	
+   441	
+   442	@method_decorator(
+   443	    name='post',
+   444	    decorator=extend_schema(
+   445	        tags=['Invites'],
+   446	        summary='Reset organization token',
+   447	        description='Reset the token used in the invitation link to invite someone to an organization.',
+   448	        responses={200: OrganizationInviteSerializer()},
+   449	        extensions={
+   450	            'x-fern-sdk-group-name': 'organizations',
+   451	            'x-fern-sdk-method-name': 'reset_token',
+   452	            'x-fern-audiences': ['public'],
+   453	        },
+   454	    ),
+   455	)
+   456	class OrganizationResetTokenAPI(APIView):
+   457	    permission_required = all_permissions.organizations_invite
+   458	    parser_classes = (JSONParser,)
+   459	
+   460	    def post(self, request, *args, **kwargs):
+   461	        org = request.user.active_organization
+   462	        om = OrganizationMember.objects.filter(user=request.user, organization=org).first()
+   463	        if not om or (om.role in ['annotator', 'reviewer'] and not om.is_owner):
+   464	            raise PermissionDenied("You do not have permission to reset invite tokens.")
+   465	
+   466	        org.reset_token()
+   467	        logger.debug(f'New token for organization {org.pk} is {org.token}')
+   468	        invite_url = request.build_absolute_uri(
+   469	            '{}?token={}'.format(reverse('user-signup'), org.token)
+   470	        )
+   471	        serializer = OrganizationInviteSerializer(data={'invite_url': invite_url, 'token': org.token})
+   472	        serializer.is_valid()
+   473	        return Response(serializer.data, status=201)
+   474	
+   475	class OrganizationMemberSuspendAPI(APIView):
+   476	    """Toggle is_suspended on a single organization member. Admin/owner of the org only."""
+   477	    permission_classes = [IsAuthenticated]
+   478	
+   479	    def post(self, request, pk, user_pk, *args, **kwargs):
+   480	        org = get_object_or_404(Organization, pk=pk)
+   481	
+   482	        if not request.user.is_superuser:
+   483	            requester_member = OrganizationMember.objects.filter(
+   484	                user=request.user, organization=org, deleted_at__isnull=True
+   485	            ).first()
+   486	            if not requester_member or not (requester_member.is_owner or requester_member.role == OrganizationMember.ROLE_ADMIN):
+   487	                raise PermissionDenied('Only organization admins can suspend members.')
+   488	
+   489	        target = get_object_or_404(
+   490	            OrganizationMember.objects.select_related('user'),
+   491	            user_id=user_pk, organization=org, deleted_at__isnull=True,
+   492	        )
+   493	        if target.user_id == request.user.id:
+   494	            return Response({'detail': 'You cannot suspend yourself.'}, status=400)
+   495	        if target.is_owner:
+   496	            return Response({'detail': 'Cannot suspend the organization owner.'}, status=400)
+   497	
+   498	        target.is_suspended = not target.is_suspended
+   499	        target.save(update_fields=['is_suspended', 'updated_at'])
+   500	        return Response({'user_id': target.user_id, 'is_suspended': target.is_suspended})
+   501	
+   502	
+   503	class SuperAdminOrganizationListAPI(generics.ListAPIView):
+   504	    permission_classes = [IsAuthenticated]
+   505	    serializer_class = OrganizationSerializer
+   506	
+   507	    def get_queryset(self):
+   508	        if not self.request.user.is_superuser:
+   509	            raise PermissionDenied("Only Super Admin can access this endpoint.")
+   510	        return Organization.objects.all().order_by('-id')
+   511	
+   512	
+   513	class SuperAdminOrganizationSuspendAPI(APIView):
+   514	    permission_classes = [IsAuthenticated]
+   515	
+   516	    def post(self, request, pk, *args, **kwargs):
+   517	        if not request.user.is_superuser:
+   518	            raise PermissionDenied("Only Super Admin can access this endpoint.")
+   519	
+   520	        org = get_object_or_404(Organization, pk=pk)
+   521	        action = request.data.get('action')
+   522	
+   523	        if action == 'suspend':
+   524	            org.is_suspended = True
+   525	            org.save(update_fields=['is_suspended'])
+   526	            return Response({"status": "suspended", "org_id": org.pk})
+   527	        elif action == 'unsuspend':
+   528	            org.is_suspended = False
+   529	            org.save(update_fields=['is_suspended'])
+   530	            return Response({"status": "active", "org_id": org.pk})
+   531	
+   532	        raise ValidationError("Invalid action. Use 'suspend' or 'unsuspend'.")
+   533	
+   534	
+   535	class SuperAdminMaintenanceToggleAPI(APIView):
+   536	    permission_classes = [IsAuthenticated]
+   537	
+   538	    def post(self, request, *args, **kwargs):
+   539	        if not request.user.is_superuser:
+   540	            raise PermissionDenied("Only Super Admin can access this endpoint.")
+
+===== label_studio/organizations/urls.py full =====
+     1	"""This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
+     2	
+     3	from django.urls import include, path
+     4	from organizations import api, views
+     5	
+     6	app_name = 'organizations'
+     7	
+     8	# TODO: there should be only one patterns list based on API (with api/ prefix removed)
+     9	# Page URLs
+    10	_urlpatterns = [
+    11	    # get organization page
+    12	    path('', views.organization_people_list, name='organization-index'),
+    13	]
+    14	
+    15	# API URLs
+    16	_api_urlpattens = [
+    17	    # organization list viewset
+    18	    path('', api.OrganizationListAPI.as_view(), name='organization-list'),
+    19	    # organization detail viewset
+    20	    path('<int:pk>', api.OrganizationAPI.as_view(), name='organization-detail'),
+    21	    # organization memberships list viewset
+    22	    path('<int:pk>/memberships', api.OrganizationMemberListAPI.as_view(), name='organization-memberships-list'),
+    23	    path(
+    24	        '<int:pk>/memberships/<int:user_pk>/',
+    25	        api.OrganizationMemberDetailAPI.as_view(),
+    26	        name='organization-membership-detail',
+    27	    ),
+    28	    path(
+    29	        '<int:pk>/memberships/<int:user_pk>/suspend/',
+    30	        api.OrganizationMemberSuspendAPI.as_view(),
+    31	        name='organization-membership-suspend',
+    32	    ),
+    33	]
+    34	# TODO: these urlpatterns should be moved in core/urls with include('organizations.urls')
+    35	urlpatterns = [
+    36	    path('organization/', views.simple_view, name='organization-simple'),
+    37	    path('organization/webhooks', views.simple_view, name='organization-simple-webhooks'),
+    38	    path('people/', include(_urlpatterns)),
+    39	    # TODO: temporary route, remove as needed
+    40	    path('models/', views.simple_view, name='models'),
+    41	    path('api/organizations/', include((_api_urlpattens, app_name), namespace='api')),
+    42	    # invite
+    43	    path('api/invite', api.OrganizationInviteAPI.as_view(), name='organization-invite'),
+    44	    path('api/invite/reset-token', api.OrganizationResetTokenAPI.as_view(), name='organization-reset-token'),
+    45	    
+    46	    # Super Admin controls
+    47	    path('api/superadmin/organizations/', api.SuperAdminOrganizationListAPI.as_view(), name='superadmin-organizations'),
+    48	    path('api/superadmin/organizations/<int:pk>/suspend/', api.SuperAdminOrganizationSuspendAPI.as_view(), name='superadmin-organizations-suspend'),
+    49	    path('api/superadmin/maintenance/toggle/', api.SuperAdminMaintenanceToggleAPI.as_view(), name='superadmin-maintenance-toggle'),
+    50	]
+
+===== label_studio/organizations/views.py full =====
+     1	"""This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
+     2	
+     3	from django.contrib.auth.decorators import login_required
+     4	from django.shortcuts import redirect, render
+     5	
+     6	from organizations.models import Organization, OrganizationMember
+     7	
+     8	
+     9	def _user_can_view_org(user):
+    10	    """Return True if user is Super Admin or Admin/Owner of their active org."""
+    11	    if getattr(user, 'is_superuser', False):
+    12	        return True
+    13	    org = getattr(user, 'active_organization', None)
+    14	    if not org:
+    15	        return False
+    16	    om = OrganizationMember.objects.filter(
+    17	        user=user, organization=org, deleted_at__isnull=True
+    18	    ).first()
+    19	    if not om:
+    20	        return False
+    21	    # Owner of org OR member with admin role
+    22	    return getattr(om, 'is_owner', False) or getattr(om, 'role', '') == OrganizationMember.ROLE_ADMIN
+    23	
+    24	
+    25	@login_required
+    26	def organization_people_list(request):
+    27	    if not _user_can_view_org(request.user):
+    28	        return redirect('projects:project-index')
+    29	    organization = getattr(request.user, 'active_organization', None)
+    30	    if request.user.is_superuser and organization is None:
+    31	        organization = Organization.objects.order_by('id').first()
+    32	    return render(
+    33	        request,
+    34	        'organizations/people_list.html',
+    35	        {'organization': organization, 'organization_id': organization.id if organization else None},
+    36	    )
+    37	
+    38	
+    39	@login_required
+    40	def simple_view(request):
+    41	    if not _user_can_view_org(request.user):
+    42	        return redirect('projects:project-index')
+    43	    organization = getattr(request.user, 'active_organization', None)
+    44	    if request.user.is_superuser and organization is None:
+    45	        organization = Organization.objects.order_by('id').first()
+    46	    return render(
+    47	        request,
+    48	        'organizations/people_list.html',
+    49	        {'organization': organization, 'organization_id': organization.id if organization else None},
+    50	    )
+
+===== label_studio/data_manager/actions/assign_tasks.py full =====
+     1	import logging
+     2	from core.permissions import AllPermissions
+     3	from users.models import User
+     4	from organizations.models import OrganizationMember
+     5	from projects.assignment_utils import (
+     6	    assign_tasks_to_users,
+     7	    can_manage_assignments,
+     8	    ensure_assignment_manager,
+     9	    get_project_role_user,
+    10	)
+    11	from rest_framework.exceptions import PermissionDenied, ValidationError
+    12	
+    13	all_permissions = AllPermissions()
+    14	logger = logging.getLogger(__name__)
+    15	
+    16	def can_assign_tasks_action(user, project):
+    17	    return can_manage_assignments(user, project)
+    18	
+    19	def assign_tasks_form(user, project):
+    20	    if not can_manage_assignments(user, project):
+    21	        return []
+    22	
+    23	    annotator_ids = OrganizationMember.objects.filter(
+    24	        organization=project.organization,
+    25	        role=OrganizationMember.ROLE_ANNOTATOR,
+    26	        deleted_at__isnull=True,
+    27	    ).exclude(
+    28	        user_id=project.organization.created_by_id,
+    29	    ).values_list('user_id', flat=True)
+    30	
+    31	    reviewer_ids = OrganizationMember.objects.filter(
+    32	        organization=project.organization,
+    33	        role=OrganizationMember.ROLE_REVIEWER,
+    34	        deleted_at__isnull=True,
+    35	    ).exclude(
+    36	        user_id=project.organization.created_by_id,
+    37	    ).values_list('user_id', flat=True)
+    38	
+    39	    annotators = User.objects.filter(id__in=annotator_ids)
+    40	    reviewers = User.objects.filter(id__in=reviewer_ids)
+    41	
+    42	    return [
+    43	        {
+    44	            'columnCount': 1,
+    45	            'fields': [
+    46	                {
+    47	                    'type': 'select',
+    48	                    'name': 'annotator_id',
+    49	                    'label': 'Annotator',
+    50	                    'options': [
+    51	                        {'value': str(u.id), 'label': u.get_full_name() or u.username or u.email}
+    52	                        for u in annotators
+    53	                    ],
+    54	                    'searchable': True,
+    55	                },
+    56	                {
+    57	                    'type': 'select',
+    58	                    'name': 'reviewer_id',
+    59	                    'label': 'Reviewer (Optional)',
+    60	                    'options': [
+    61	                        {'value': '', 'label': 'None'}
+    62	                    ] + [
+    63	                        {'value': str(u.id), 'label': u.get_full_name() or u.username or u.email}
+    64	                        for u in reviewers
+    65	                    ],
+    66	                    'searchable': True,
+    67	                }
+    68	            ],
+    69	        }
+    70	    ]
+    71	
+    72	def assign_tasks(project, queryset, **kwargs):
+    73	    request = kwargs['request']
+    74	    annotator_id = request.data.get('annotator_id')
+    75	    reviewer_id = request.data.get('reviewer_id')
+    76	
+    77	    try:
+    78	        ensure_assignment_manager(request.user, project)
+    79	    except PermissionDenied as exc:
+    80	        return {'detail': str(exc.detail), 'status': 403}
+    81	
+    82	    if not annotator_id:
+    83	        return {'detail': 'Annotator must be selected.', 'status': 400}
+    84	
+    85	    try:
+    86	        annotator = get_project_role_user(project, annotator_id, OrganizationMember.ROLE_ANNOTATOR)
+    87	        reviewer = (
+    88	            get_project_role_user(project, reviewer_id, OrganizationMember.ROLE_REVIEWER)
+    89	            if reviewer_id else None
+    90	        )
+    91	    except ValidationError as exc:
+    92	        return {'detail': exc.detail, 'status': 400}
+    93	
+    94	    assignment_ids = assign_tasks_to_users(project, queryset, annotator, reviewer)
+    95	
+    96	    return {'processed_items': len(assignment_ids), 'detail': f'Assigned {len(assignment_ids)} tasks successfully.'}
+    97	
+    98	actions = [
+    99	    {
+   100	        'entry_point': assign_tasks,
+   101	        'permission': all_permissions.projects_change,
+   102	        'permission_check': can_assign_tasks_action,
+   103	        'title': 'Assign Tasks',
+   104	        'order': 105,
+   105	        'dialog': {
+   106	            'text': 'Assign selected tasks to an annotator and an optional reviewer.',
+   107	            'type': 'confirm',
+   108	            'form': assign_tasks_form,
+   109	        },
+   110	    }
+   111	]
+
+===== label_studio/tasks/models.py lines 1580-1685 =====
+  1580	            except OperationalError:
+  1581	                logger.error('Operational error while updating tasks: {exc}', exc_info=True)
+  1582	                # try to update query batches one more time
+  1583	                start_job_async_or_sync(
+  1584	                    bulk_update,
+  1585	                    tasks,
+  1586	                    in_seconds=settings.BATCH_JOB_RETRY_TIMEOUT,
+  1587	                    update_fields=['is_labeled'],
+  1588	                    batch_size=settings.BATCH_SIZE,
+  1589	                )
+  1590	
+  1591	
+  1592	def bulk_update_stats_project_tasks(tasks, project=None):
+  1593	    # Avoid circular import
+  1594	    from projects.functions.utils import get_unique_ids_list
+  1595	
+  1596	    bulk_update_is_labeled = load_func(settings.BULK_UPDATE_IS_LABELED)
+  1597	
+  1598	    if flag_set('fflag_fix_back_plt_802_update_is_labeled_20062025_short', user='auto'):
+  1599	        task_ids = get_unique_ids_list(tasks)
+  1600	
+  1601	        if not task_ids:
+  1602	            return
+  1603	
+  1604	        if project is None:
+  1605	            first_task = Task.objects.get(id=task_ids[0])
+  1606	            project = first_task.project
+  1607	
+  1608	        # Set user context so FSM checks work when this runs in an async worker
+  1609	        if project.created_by_id:
+  1610	            CurrentContext.set_user(project.created_by)
+  1611	        bulk_update_is_labeled(task_ids, project)
+  1612	    else:
+  1613	        return deprecated_bulk_update_stats_project_tasks(tasks, project)
+  1614	
+  1615	
+  1616	Q_finished_annotations = Q(was_cancelled=False) & Q(result__isnull=False)
+  1617	Q_task_finished_annotations = Q(annotations__was_cancelled=False) & Q(annotations__result__isnull=False)
+  1618	
+  1619	class TaskAssignment(models.Model):
+  1620	    STATUS_PENDING_ANNOTATION = 'pending_annotation'
+  1621	    STATUS_PENDING_REVIEW = 'pending_review'
+  1622	    STATUS_COMPLETED = 'completed'
+  1623	    STATUS_REJECTED = 'rejected'
+  1624	    STATUS_CHOICES = [
+  1625	        (STATUS_PENDING_ANNOTATION, 'Pending Annotation'),
+  1626	        (STATUS_PENDING_REVIEW, 'Pending Review'),
+  1627	        (STATUS_COMPLETED, 'Completed'),
+  1628	        (STATUS_REJECTED, 'Rejected'),
+  1629	    ]
+  1630	
+  1631	    task = models.ForeignKey(Task, related_name='assignments', on_delete=models.CASCADE)
+  1632	    annotator = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='assigned_tasks', on_delete=models.CASCADE)
+  1633	    reviewer = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='reviewed_tasks', on_delete=models.SET_NULL, null=True, blank=True)
+  1634	    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=STATUS_PENDING_ANNOTATION, db_index=True)
+  1635	    rejection_reason = models.TextField(blank=True, default='')
+  1636	    started_at = models.DateTimeField(null=True, blank=True)
+  1637	    completed_at = models.DateTimeField(null=True, blank=True)
+  1638	    created_at = models.DateTimeField(auto_now_add=True)
+  1639	    updated_at = models.DateTimeField(auto_now=True)
+  1640	
+  1641	    @property
+  1642	    def working_seconds(self):
+  1643	        if not self.started_at:
+  1644	            return 0
+  1645	        end = self.completed_at or now()
+  1646	        return int((end - self.started_at).total_seconds())
+  1647	
+  1648	    class Meta:
+  1649	        unique_together = ('task', 'annotator')
+  1650	        indexes = [
+  1651	            models.Index(fields=['annotator', 'status']),
+  1652	            models.Index(fields=['reviewer', 'status']),
+  1653	        ]
+  1654	
+  1655	
+  1656	@receiver(post_save, sender=Annotation)
+  1657	def handle_task_assignment_transition(sender, instance, created, **kwargs):
+  1658	    """Transition TaskAssignment on annotator submit (→pending_review) or reviewer submit (→completed).
+  1659	
+  1660	    Rejection is an explicit action via POST /api/tasks/<pk>/reject/ — never inferred from annotation content.
+  1661	    """
+  1662	    assignment = TaskAssignment.objects.filter(task_id=instance.task_id).first()
+  1663	    if not assignment or instance.was_cancelled:
+  1664	        return
+  1665	
+  1666	    if instance.completed_by_id == assignment.annotator_id and assignment.reviewer_id:
+  1667	        if assignment.status != TaskAssignment.STATUS_PENDING_REVIEW:
+  1668	            assignment.status = TaskAssignment.STATUS_PENDING_REVIEW
+  1669	            assignment.rejection_reason = ''
+  1670	            if not assignment.started_at:
+  1671	                assignment.started_at = now()
+  1672	            assignment.completed_at = None
+  1673	            assignment.save(update_fields=['status', 'rejection_reason', 'started_at', 'completed_at', 'updated_at'])
+  1674	            logger.info(f'Task {instance.task_id} submitted by annotator → pending_review.')
+  1675	    elif instance.completed_by_id == assignment.reviewer_id:
+  1676	        if assignment.status != TaskAssignment.STATUS_COMPLETED:
+  1677	            assignment.status = TaskAssignment.STATUS_COMPLETED
+  1678	            assignment.completed_at = now()
+  1679	            assignment.save(update_fields=['status', 'completed_at', 'updated_at'])
+  1680	            logger.info(f'Task {instance.task_id} approved by reviewer → completed.')
+  1681	
+  1682	
+  1683	@receiver(post_save, sender=AnnotationDraft)
+  1684	def handle_task_started_at(sender, instance, created, **kwargs):
+  1685	    """First time annotator opens a task and saves a draft → mark started_at."""
+
+===== label_studio/tasks/api.py lines 800-900 =====
+   800	    @api_webhook(WebhookAction.ANNOTATION_CREATED)
+   801	    def post(self, request, *args, **kwargs):
+   802	        return super(AnnotationsListAPI, self).post(request, *args, **kwargs)
+   803	
+   804	    def get_queryset(self):
+   805	        task = generics.get_object_or_404(Task.objects.for_user(self.request.user), pk=self.kwargs.get('pk', 0))
+   806	        return Annotation.objects.filter(Q(task=task) & Q(was_cancelled=False)).order_by('pk')
+   807	
+   808	    def delete_draft(self, draft_id, annotation_id):
+   809	        try:
+   810	            draft = AnnotationDraft.objects.get(id=draft_id)
+   811	            # We call delete on the individual draft object because
+   812	            # AnnotationDraft#delete has special behavior (updating created_labels_drafts).
+   813	            # This special behavior won't be triggered if we call delete on the queryset.
+   814	            # Only for drafts with empty annotation_id, other ones deleted by signal
+   815	            draft.delete()
+   816	        except AnnotationDraft.DoesNotExist:
+   817	            pass
+   818	
+   819	    def perform_create(self, ser):
+   820	        task = self.parent_object
+   821	        # annotator has write access only to annotations and it can't be checked it after serializer.save()
+   822	        user = self.request.user
+   823	
+   824	        # Check if task is being skipped and if it's allowed
+   825	        was_cancelled_get = bool_from_request(self.request.GET, 'was_cancelled', False)
+   826	        was_cancelled_data = self.request.data.get('was_cancelled', False)
+   827	        is_skipping = was_cancelled_get or was_cancelled_data
+   828	
+   829	        if is_skipping and not task.can_be_skipped():
+   830	            raise ValidationError({'detail': 'This task cannot be skipped.'})
+   831	
+   832	        # updates history
+   833	        result = ser.validated_data.get('result')
+   834	        extra_args = {'task_id': self.kwargs['pk'], 'project_id': task.project_id}
+   835	
+   836	        # save stats about how well annotator annotations coincide with current prediction
+   837	        # only for finished task annotations
+   838	        if result is not None:
+   839	            prediction = Prediction.objects.filter(task=task, model_version=task.project.model_version)
+   840	            if prediction.exists():
+   841	                prediction = prediction.first()
+   842	                prediction_ser = PredictionSerializer(prediction).data
+   843	            else:
+   844	                logger.debug(f'User={self.request.user}: there are no predictions for task={task}')
+   845	                prediction_ser = {}
+   846	            # serialize annotation
+   847	            extra_args.update({'prediction': prediction_ser, 'updated_by': user})
+   848	
+   849	        if 'was_cancelled' in self.request.GET:
+   850	            extra_args['was_cancelled'] = bool_from_request(self.request.GET, 'was_cancelled', False)
+   851	
+   852	        if 'completed_by' not in ser.validated_data:
+   853	            extra_args['completed_by'] = self.request.user
+   854	
+   855	        draft_id = self.request.data.get('draft_id')
+   856	        draft = AnnotationDraft.objects.filter(id=draft_id).first()
+   857	        if draft:
+   858	            # draft permission check
+   859	            if draft.task_id != task.id or not draft.has_permission(user) or draft.user_id != user.id:
+   860	                raise PermissionDenied(f'You have no permission to draft id:{draft_id}')
+   861	
+   862	        if draft is not None:
+   863	            # if the annotation will be created from draft - get created_at from draft to keep continuity of history
+   864	            extra_args['draft_created_at'] = draft.created_at
+   865	
+   866	        # create annotation
+   867	        logger.debug(f'User={self.request.user}: save annotation')
+   868	        annotation = ser.save(**extra_args)
+   869	
+   870	        logger.debug(f'Save activity for user={self.request.user}')
+   871	        self.request.user.activity_at = timezone.now()
+   872	        self.request.user.save()
+   873	
+   874	        # Release task if it has been taken at work (it should be taken by the same user, or it makes sentry error
+   875	        logger.debug(f'User={user} releases task={task}')
+   876	        task.release_lock(user)
+   877	
+   878	        # if annotation created from draft - remove this draft
+   879	        if draft_id is not None:
+   880	            logger.debug(f'Remove draft {draft_id} after creating annotation {annotation.id}')
+   881	            self.delete_draft(draft_id, annotation.id)
+   882	
+   883	        if self.request.data.get('ground_truth'):
+   884	            annotation.task.ensure_unique_groundtruth(annotation_id=annotation.id)
+   885	
+   886	        fill_history_annotation(user, task, annotation)
+   887	
+   888	        return annotation
+   889	
+   890	
+   891	@extend_schema(exclude=True)
+   892	class AnnotationDraftListAPI(generics.ListCreateAPIView):
+   893	    parser_classes = (JSONParser, MultiPartParser, FormParser)
+   894	    serializer_class = AnnotationDraftSerializer
+   895	    permission_required = ViewClassPermission(
+   896	        GET=all_permissions.annotations_view,
+   897	        POST=all_permissions.annotations_create,
+   898	    )
+   899	    queryset = AnnotationDraft.objects.all()
+   900	
+
+===== label_studio/tasks/urls.py full =====
+     1	"""This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
+     2	
+     3	from django.urls import include, path
+     4	from rest_framework import routers
+     5	
+     6	from . import api
+     7	
+     8	app_name = 'tasks'
+     9	
+    10	router = routers.DefaultRouter()
+    11	router.register(r'predictions', api.PredictionAPI, basename='prediction')
+    12	
+    13	_api_urlpatterns = [
+    14	    # CRUD
+    15	    path('', api.TaskListAPI.as_view(), name='task-list'),
+    16	    path('<int:pk>/', api.TaskAPI.as_view(), name='task-detail'),
+    17	    path('<int:pk>/annotations/', api.AnnotationsListAPI.as_view(), name='task-annotations'),
+    18	    path('<int:pk>/drafts', api.AnnotationDraftListAPI.as_view(), name='task-drafts'),
+    19	    path(
+    20	        '<int:pk>/annotations/<int:annotation_id>/drafts',
+    21	        api.AnnotationDraftListAPI.as_view(),
+    22	        name='task-annotations-drafts',
+    23	    ),
+    24	    # Agreement endpoint for Summary view
+    25	    path('<int:pk>/agreement/', api.TaskAgreementAPI.as_view(), name='task-agreement'),
+    26	    # Fixensy: explicit reviewer rejection
+    27	    path('<int:pk>/reject/', api.TaskRejectAPI.as_view(), name='task-reject'),
+    28	]
+    29	
+    30	_api_annotations_urlpatterns = [
+    31	    path('<int:pk>/', api.AnnotationAPI.as_view(), name='annotation-detail'),
+    32	    path('<int:pk>/convert-to-draft', api.AnnotationConvertAPI.as_view(), name='annotation-convert-to-draft'),
+    33	]
+    34	
+    35	_api_drafts_urlpatterns = [
+    36	    path('<int:pk>/', api.AnnotationDraftAPI.as_view(), name='draft-detail'),
+    37	]
+    38	
+    39	_api_predictions_urlpatterns = router.urls
+    40	
+    41	
+    42	urlpatterns = [
+    43	    path('api/tasks/', include((_api_urlpatterns, app_name), namespace='api')),
+    44	    # TODO: these should be moved to the separate apps
+    45	    path('api/annotations/', include((_api_annotations_urlpatterns, app_name), namespace='api-annotations')),
+    46	    path('api/drafts/', include((_api_drafts_urlpatterns, app_name), namespace='api-drafts')),
+    47	    path('api/', include((_api_predictions_urlpatterns, app_name), namespace='api-predictions')),
+    48	]

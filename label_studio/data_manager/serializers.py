@@ -460,6 +460,57 @@ class DataManagerTaskSerializer(TaskSerializer):
     draft_exists = serializers.BooleanField(required=False)
     updated_by = UpdatedByDMFieldSerializer(required=False, read_only=True)
     state = FSMStateField(read_only=True)  # FSM state - automatically uses annotation if present
+    
+    annotator_time = serializers.SerializerMethodField(required=False)
+    reviewer_time = serializers.SerializerMethodField(required=False)
+    rejection_count = serializers.SerializerMethodField(required=False)
+    assignment = serializers.SerializerMethodField(required=False)
+
+    def _get_assignment(self, task):
+        if not hasattr(self, '_assignment_cache'):
+            self._assignment_cache = {}
+        if task.id in self._assignment_cache:
+            return self._assignment_cache[task.id]
+        from tasks.models import TaskAssignment
+        assignment = TaskAssignment.objects.filter(task_id=task.id).select_related('annotator', 'reviewer').first()
+        self._assignment_cache[task.id] = assignment
+        return assignment
+
+    def get_assignment(self, task):
+        assignment = self._get_assignment(task)
+        if not assignment:
+            return None
+        return {
+            'status': assignment.status,
+            'rejection_reason': assignment.rejection_reason or '',
+            'annotator_id': assignment.annotator_id,
+            'reviewer_id': assignment.reviewer_id,
+            'assigned_at': assignment.created_at.isoformat() if assignment.created_at else None,
+            'started_at': assignment.started_at.isoformat() if assignment.started_at else None,
+            'completed_at': assignment.completed_at.isoformat() if assignment.completed_at else None,
+            'working_seconds': assignment.working_seconds,
+            'updated_at': assignment.updated_at.isoformat() if assignment.updated_at else None,
+        }
+
+    def get_annotator_time(self, task):
+        assignment = self._get_assignment(task)
+        if not assignment or not assignment.annotator_id:
+            return None
+        annos = task.annotations.filter(completed_by_id=assignment.annotator_id)
+        return sum(a.lead_time for a in annos if a.lead_time) or None
+
+    def get_reviewer_time(self, task):
+        assignment = self._get_assignment(task)
+        if not assignment or not assignment.reviewer_id:
+            return None
+        annos = task.annotations.filter(completed_by_id=assignment.reviewer_id)
+        return sum(a.lead_time for a in annos if a.lead_time) or None
+
+    def get_rejection_count(self, task):
+        assignment = self._get_assignment(task)
+        if not assignment:
+            return 0
+        return 1 if assignment.status == 'rejected' else 0
 
     CHAR_LIMITS = 500
 

@@ -27,6 +27,9 @@ export const SelectedUser = ({ user, onClose }) => {
     .filter((n) => !!n)
     .join(" ")
     .trim();
+  const createdProjects = user.created_projects ?? [];
+  const contributedProjects = user.contributed_to_projects ?? [];
+  const role = user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : null;
 
   return (
     <div className={cn("user-info").toClassName()}>
@@ -44,6 +47,12 @@ export const SelectedUser = ({ user, onClose }) => {
         <div className={cn("user-info").elem("info-wrapper").toClassName()}>
           {fullName && <div className={cn("user-info").elem("full-name").toClassName()}>{fullName}</div>}
           <p className={cn("user-info").elem("email").toClassName()}>{user.email}</p>
+          {role && (
+            <p className={cn("user-info").elem("email").toClassName()}>
+              {role}
+              {user.is_suspended ? " · Suspended" : ""}
+            </p>
+          )}
         </div>
       </div>
 
@@ -53,25 +62,27 @@ export const SelectedUser = ({ user, onClose }) => {
         </div>
       )}
 
-      {!!user.created_projects.length && (
+      {!!createdProjects.length && (
         <div className={cn("user-info").elem("section").toClassName()}>
           <div className={cn("user-info").elem("section-title").toClassName()}>Created Projects</div>
 
-          <UserProjectsLinks projects={user.created_projects} />
+          <UserProjectsLinks projects={createdProjects} />
         </div>
       )}
 
-      {!!user.contributed_to_projects.length && (
+      {!!contributedProjects.length && (
         <div className={cn("user-info").elem("section").toClassName()}>
           <div className={cn("user-info").elem("section-title").toClassName()}>Contributed to</div>
 
-          <UserProjectsLinks projects={user.contributed_to_projects} />
+          <UserProjectsLinks projects={contributedProjects} />
         </div>
       )}
 
-      <p className={cn("user-info").elem("last-active").toClassName()}>
-        Last activity on: {format(new Date(user.last_activity), "dd MMM yyyy, KK:mm a")}
-      </p>
+      {user.last_activity && (
+        <p className={cn("user-info").elem("last-active").toClassName()}>
+          Last activity on: {format(new Date(user.last_activity), "dd MMM yyyy, KK:mm a")}
+        </p>
+      )}
     </div>
   );
 };

@@ -361,9 +361,10 @@ class Task(TaskMixin, FsmHistoryStateModel):
 
     def has_permission(self, user: 'User') -> bool:  # noqa: F821
         mixin_has_permission = cast(bool, super().has_permission(user))
+        from projects.assignment_utils import user_can_access_task
 
         user.project = self.project  # link for activity log
-        return mixin_has_permission and self.project.has_permission(user)
+        return mixin_has_permission and self.project.has_permission(user) and user_can_access_task(user, self)
 
     def clear_expired_locks(self):
         self.locks.filter(expire_at__lt=now()).delete()
@@ -741,12 +742,33 @@ class Annotation(AnnotationMixin, FsmHistoryStateModel):
         null=True,
         help_text='Points to the prediction from which this annotation was created',
     )
+    parent_reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='reviewed_child_annotations',
+        null=True,
+        blank=True,
+        help_text='Legacy reviewer linkage kept for backward-compatible review workflow rows.',
+    )
     parent_annotation = models.ForeignKey(
         'tasks.Annotation',
         on_delete=models.SET_NULL,
         related_name='child_annotations',
         null=True,
         help_text='Points to the parent annotation from which this annotation was created',
+    )
+    reject_reason = models.TextField(
+        _('reject reason'),
+        null=True,
+        blank=True,
+        default=None,
+        help_text='Legacy per-annotation reject reason kept for backward-compatible review workflow rows.',
+    )
+    review_state = models.CharField(
+        _('review state'),
+        max_length=20,
+        default='pending',
+        help_text='Legacy per-annotation review state kept for backward-compatible workflow rows.',
     )
     unique_id = models.UUIDField(default=uuid.uuid4, null=True, blank=True, unique=True, editable=False)
     import_id = models.BigIntegerField(
@@ -1614,3 +1636,77 @@ def bulk_update_stats_project_tasks(tasks, project=None):
 
 Q_finished_annotations = Q(was_cancelled=False) & Q(result__isnull=False)
 Q_task_finished_annotations = Q(annotations__was_cancelled=False) & Q(annotations__result__isnull=False)
+
+class TaskAssignment(models.Model):
+    STATUS_PENDING_ANNOTATION = 'pending_annotation'
+    STATUS_PENDING_REVIEW = 'pending_review'
+    STATUS_COMPLETED = 'completed'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CHOICES = [
+        (STATUS_PENDING_ANNOTATION, 'Pending Annotation'),
+        (STATUS_PENDING_REVIEW, 'Pending Review'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    task = models.ForeignKey(Task, related_name='assignments', on_delete=models.CASCADE)
+    annotator = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='assigned_tasks', on_delete=models.CASCADE)
+    reviewer = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='reviewed_tasks', on_delete=models.SET_NULL, null=True, blank=True)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default=STATUS_PENDING_ANNOTATION, db_index=True)
+    rejection_reason = models.TextField(blank=True, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def working_seconds(self):
+        if not self.started_at:
+            return 0
+        end = self.completed_at or now()
+        return int((end - self.started_at).total_seconds())
+
+    class Meta:
+        unique_together = ('task', 'annotator')
+        indexes = [
+            models.Index(fields=['annotator', 'status']),
+            models.Index(fields=['reviewer', 'status']),
+        ]
+
+
+@receiver(post_save, sender=Annotation)
+def handle_task_assignment_transition(sender, instance, created, **kwargs):
+    """Transition TaskAssignment on annotator submit (→pending_review) or reviewer submit (→completed).
+
+    Rejection is an explicit action via POST /api/tasks/<pk>/reject/ — never inferred from annotation content.
+    """
+    assignment = TaskAssignment.objects.filter(task_id=instance.task_id).first()
+    if not assignment or instance.was_cancelled:
+        return
+
+    if instance.completed_by_id == assignment.annotator_id and assignment.reviewer_id:
+        if assignment.status != TaskAssignment.STATUS_PENDING_REVIEW:
+            assignment.status = TaskAssignment.STATUS_PENDING_REVIEW
+            assignment.rejection_reason = ''
+            if not assignment.started_at:
+                assignment.started_at = now()
+            assignment.completed_at = None
+            assignment.save(update_fields=['status', 'rejection_reason', 'started_at', 'completed_at', 'updated_at'])
+            logger.info(f'Task {instance.task_id} submitted by annotator → pending_review.')
+    elif instance.completed_by_id == assignment.reviewer_id:
+        if assignment.status != TaskAssignment.STATUS_COMPLETED:
+            assignment.status = TaskAssignment.STATUS_COMPLETED
+            assignment.completed_at = now()
+            assignment.save(update_fields=['status', 'completed_at', 'updated_at'])
+            logger.info(f'Task {instance.task_id} approved by reviewer → completed.')
+
+
+@receiver(post_save, sender=AnnotationDraft)
+def handle_task_started_at(sender, instance, created, **kwargs):
+    """First time annotator opens a task and saves a draft → mark started_at."""
+    if not created or not instance.user_id:
+        return
+    assignment = TaskAssignment.objects.filter(task_id=instance.task_id, annotator_id=instance.user_id).first()
+    if assignment and not assignment.started_at:
+        assignment.started_at = now()
+        assignment.save(update_fields=['started_at', 'updated_at'])

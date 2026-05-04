@@ -39,6 +39,7 @@ export const create = (columns) => {
     allow_postpone: types.maybeNull(types.boolean),
     allow_skip: types.optional(types.maybeNull(types.boolean), true),
     unique_lock_id: types.maybeNull(types.string),
+    assignment: types.frozen(),
     updated_by: types.optional(types.array(Assignee), []),
     ...(isFF(FF_DISABLE_GLOBAL_USER_FETCHING)
       ? {

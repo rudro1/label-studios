@@ -266,5 +266,8 @@
     "schema-utils": "^4.3.0",
     "webpack": "5.104.1",
     "@tootallnate/once": "3.0.1"
+  },
+  "overrides": {
+    "webpack": "5.104.1"
   }
 }

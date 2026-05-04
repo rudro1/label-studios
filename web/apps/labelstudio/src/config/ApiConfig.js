@@ -15,6 +15,11 @@ export const API_CONFIG = {
     userMemberships: "/organizations/:pk/memberships/:userPk",
     inviteLink: "/invite",
     resetInviteLink: "POST:/invite/reset-token",
+    superAdminInvite: "GET:/super-admin/admin-invite/",
+    superAdminMaintenanceGet: "GET:/super-admin/maintenance/",
+    superAdminMaintenanceSet: "POST:/super-admin/maintenance/",
+    superadminOrganizations: "GET:/superadmin/organizations/",
+    superadminOrganizationSuspend: "POST:/superadmin/organizations/:pk/suspend/",
 
     // Project
     projects: "/projects",

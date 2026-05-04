@@ -20,6 +20,7 @@
   <header>
     <h1>{{ organization.title }}</h1>
   </header>
+  <div id="org-meta" data-org-id="{{ organization_id|default:'' }}"></div>
   {% verbatim %}
   <div id="users">
     <div v-if="!users">
@@ -106,8 +107,12 @@
       const API = {
         users: {
           getAll() {
-            return fetch("/api/organizations/1/memberships")
+            const orgMeta = document.getElementById("org-meta");
+            const orgId = orgMeta?.dataset?.orgId;
+            if (!orgId) return Promise.resolve([]);
+            return fetch(`/api/organizations/${orgId}/memberships?page_size=-1`)
               .then(data => data.json())
+              .then(data => (Array.isArray(data) ? data : (data.results || [])))
               .then(data => data.map(u => Object.assign(u.user, {
                 member_id: u.id,
                 name: (u.user.first_name + " " + u.user.last_name).trim(),

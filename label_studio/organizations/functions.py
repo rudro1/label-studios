@@ -1,8 +1,10 @@
 from core.utils.common import temporary_disconnect_all_signals
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from organizations.models import Organization, OrganizationMember
 from projects.models import Project
+from tasks.models import Annotation, AnnotationDraft, TaskAssignment
 
 
 def create_organization(title, created_by, legacy_api_tokens_enabled=False, **kwargs):
@@ -26,6 +28,35 @@ def create_organization(title, created_by, legacy_api_tokens_enabled=False, **kw
 def destroy_organization(org):
     with temporary_disconnect_all_signals():
         Project.objects.filter(organization=org).delete()
+        # JWT settings are one-to-one with DO_NOTHING, so we must delete them first.
+        if hasattr(org, 'jwt'):
+            org.jwt.delete()
+        if hasattr(org, 'session_timeout_policy'):
+            org.session_timeout_policy.delete()
         if hasattr(org, 'saml'):
             org.saml.delete()
         org.delete()
+
+
+def destroy_user_in_organization(user, org):
+    with temporary_disconnect_all_signals():
+        Project.objects.filter(organization=org, created_by=user).delete()
+        AnnotationDraft.objects.filter(user=user, task__project__organization=org).delete()
+        Annotation.objects.filter(completed_by=user, project__organization=org).delete()
+        TaskAssignment.objects.filter(
+            Q(task__project__organization=org),
+            Q(annotator=user) | Q(reviewer=user),
+        ).delete()
+        OrganizationMember.objects.filter(user=user, organization=org).delete()
+
+        if user.active_organization_id == org.id:
+            user.active_organization = user.organizations.filter(organizationmember__deleted_at__isnull=True).first()
+            user.save(update_fields=['active_organization'])
+
+        if user.avatar:
+            user.avatar.delete(save=False)
+            user.avatar = None
+            user.save(update_fields=['avatar'])
+
+        if not user.organizations.filter(organizationmember__deleted_at__isnull=True).exists():
+            user.delete()

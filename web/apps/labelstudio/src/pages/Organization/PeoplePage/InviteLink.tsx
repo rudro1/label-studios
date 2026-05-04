@@ -14,7 +14,7 @@ const linkAtom = atomWithQuery(() => ({
     // called only once when the component is rendered on page reload
     // will also be reset when called `refetch()` on the Reset button
     const result = await API.invoke("resetInviteLink");
-    return location.origin + result.invite_url;
+    return result.invite_url;
   },
 }));
 
@@ -53,12 +53,25 @@ export function InviteLink({
 
 const InvitationModal = () => {
   const { data: link } = useAtomValue(linkAtom);
+  const [role, setRole] = useState("annotator");
+  const roleLink = link ? `${link}${link.includes("?") ? "&" : "?"}role=${role}` : "";
+
   return (
     <div className={cn("invite").toClassName()}>
-      <Input value={link} style={{ width: "100%" }} readOnly />
+      <div style={{ marginBottom: 15, display: "flex", gap: 10, alignItems: "center" }}>
+        <Typography>Invite Role:</Typography>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          style={{ padding: "5px 10px", borderRadius: 4, border: "1px solid #ccc" }}
+        >
+          <option value="annotator">Annotator</option>
+          <option value="reviewer">Reviewer</option>
+        </select>
+      </div>
+      <Input value={roleLink} style={{ width: "100%" }} readOnly />
       <Typography size="small" className="text-neutral-content-subtler mt-base mb-wider">
-        Invite members to join your Label Studio instance. People that you invite have full access to all of your
-        projects.{" "}
+        Invite members to join your Label Studio instance. People that you invite will be assigned the selected role.{" "}
         <a
           href="https://labelstud.io/guide/signup.html"
           target="_blank"
@@ -99,7 +112,14 @@ const InvitationFooter = () => {
         <Button
           variant={copied ? "positive" : "primary"}
           className="w-[170px]"
-          onClick={() => copyText(link!)}
+          onClick={() => {
+            const input = document.querySelector(".invite input") as HTMLInputElement;
+            if (input) {
+              copyText(input.value);
+            } else {
+              copyText(link!);
+            }
+          }}
           aria-label="Copy invite link"
         >
           {copied ? "Copied!" : "Copy link"}
